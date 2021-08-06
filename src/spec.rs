@@ -26,6 +26,18 @@ key_const!(MEMORY_INIT, 0x00, 0x0E);
 key_const!(BLANK_FRAMES, 0x00, 0x0F);
 key_const!(VERIFIED, 0x00, 0x10);
 
+key_const!(LATCH_FILTER, 0x01, 0x01);
+key_const!(CLOCK_FILTER, 0x01, 0x02);
+key_const!(OVERREAD, 0x01, 0x03);
+key_const!(DPCM, 0x01, 0x04);
+key_const!(GAME_GENIE_CODE, 0x01, 0x05);
+key_const!(CONTROLLER, 0x01, 0xF0);
+
+
+key_const!(INPUT_CHUNKS, 0xFE, 0x01);
+key_const!(TRANSITION, 0xFE, 0x02);
+key_const!(LAG_FRAME, 0xFE, 0x03);
+
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct PayloadSize {
@@ -33,12 +45,27 @@ pub struct PayloadSize {
     pub length_bytes: Vec<u8>,
     pub len: usize,
 }
+impl Display for PayloadSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:02X}, {:02X}", self.exponent, self.len)
+    }
+}
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct PacketRaw {
     key: Vec<u8>,
     size: PayloadSize,
     payload: Vec<u8>,
+}
+impl Display for PacketRaw {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut payload_str = String::new();
+        for byte in &self.payload {
+            payload_str.push_str(format!("{:02X} ", byte).as_str());
+        }
+        
+        write!(f, "({:04X}, {}, {})", to_usize(self.key.as_slice()), self.size, payload_str.trim_end())
+    }
 }
 impl PacketRaw {
     pub fn new(key: Vec<u8>, size: PayloadSize, payload: Vec<u8>) -> Self {
@@ -55,21 +82,22 @@ pub enum Packet {
     // Console-agnostic Keys //
     
     ConsoleType(PacketRaw, u8),
-    ConsoleRegion(u8),
-    GameTitle(String),
+    ConsoleRegion(PacketRaw, u8),
+    GameTitle(PacketRaw, String),
     //HashX(),
-    Author(String),
-    Category(String),
-    EmulatorName(String),
-    EmulatorVersion(String),
+    Author(PacketRaw, String),
+    Category(PacketRaw, String),
+    EmulatorName(PacketRaw, String),
+    EmulatorVersion(PacketRaw, String),
     
-    TasLastModified(u64),
-    DumpLastModified(u64),
-    TotalFrames(u32),
-    Rerecords(u32),
-    SourceLink(String),
+    TasLastModified(PacketRaw, u64),
+    DumpLastModified(PacketRaw, u64),
+    TotalFrames(PacketRaw, u32),
+    Rerecords(PacketRaw, u32),
+    SourceLink(PacketRaw, String),
     
     MemoryInit {
+        raw: PacketRaw,
         kind: u8,
         v: Option<u8>,
         k: Option<Vec<u8>>,
@@ -77,14 +105,21 @@ pub enum Packet {
         p: Option<Vec<u8>>,
     },
     
-    BlankFrames(i16),
-    Verified(u8),
+    BlankFrames(PacketRaw, i16),
+    Verified(PacketRaw, u8),
     
     // NES Keys //
+    LatchFilter(PacketRaw, u8),
+    ClockFilter(PacketRaw, u8),
+    Overread(PacketRaw, u8),
+    Dpcm(PacketRaw, u8),
+    GameGenieCode(PacketRaw, Vec<u8>),
+    
+    //NesController(PacketRaw, u8, u8),
     
     
     // SNES Keys //
-    
+    //SnesController(PacketRaw, u8, u8),
     
     // N64 Keys //
     
@@ -99,15 +134,55 @@ pub enum Packet {
     
     
     // Input Frame/Timing Keys //
-    
-    Input(Vec<u8>),
-    TransitionFrame((u32, u8, Option<Vec<u8>>)),
-    LagFrame((u32, u32)),
+
+    InputChunks(PacketRaw, u8, Vec<u8>),
+    Transition(PacketRaw, u32, u8, Vec<u8>),
+    LagFrame(PacketRaw, u32, u32),
     
     Unsupported(PacketRaw),
 }
+impl Display for Packet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Packet::*;
+        match self {
+            ConsoleType(raw, val) => write!(f, "ConsoleType({}, {:02X})", raw, val),
+            ConsoleRegion(raw, val) => write!(f, "ConsoleRegion({}, {:02X})", raw, val),
+            GameTitle(raw, val) => write!(f, "GameTitle({}, {})", raw, val),
+            Author(raw, val) => write!(f, "Author({}, {})", raw, val),
+            Category(raw, val) => write!(f, "Category({}, {})", raw, val),
+            EmulatorName(raw, val) => write!(f, "EmulatorName({}, {})", raw, val),
+            EmulatorVersion(raw, val) => write!(f, "EmulatorVersion({}, {})", raw, val),
+            TasLastModified(raw, val) => write!(f, "TasLastModified({}, {:08X})", raw, val),
+            DumpLastModified(raw, val) => write!(f, "DumpLastModified({}, {:08X})", raw, val),
+            TotalFrames(raw, val) => write!(f, "TotalFrames({}, {})", raw, val),
+            Rerecords(raw, val) => write!(f, "Rerecords({}, {})", raw, val),
+            SourceLink(raw, val) => write!(f, "SourceLink({}, {})", raw, val),
+            MemoryInit { raw, kind, v, k, n, p } => {
+                match kind {
+                    2 => {
+                        let mut payload_str = String::new();
+                        for byte in p.clone().unwrap() {
+                            payload_str.push_str(format!("{:02X} ", byte).as_str());
+                        }
+                        
+                        write!(f, "MemoryInit({}, {:02X}, {}, [{}])", raw, kind, n.clone().unwrap(), payload_str.trim_end())
+                    },
+                    1 | 3..=6 => {
+                        write!(f, "MemoryInit({}, {:02X}, {})", raw, kind, n.clone().unwrap_or(String::new()))
+                    },
+                    _ => write!(f, "MemoryInit({}, kind={:02X}, v={:?}, k={:?}, n={:?}, p={:?})", raw, kind, v, k, n, p)
+                }
+                
+            },
+            BlankFrames(raw, val) => write!(f, "BlankFrames({}, {})", raw, val),
+            Verified(raw, val) => write!(f, "Verified({}, {})", raw, val),
+            _ => write!(f, "{:?}", self)
+        }
+    }
+}
 impl Packet {
     pub fn parse(key_width: usize, data: &Vec<u8>, i: &mut usize) -> Result<Self, (Self, String)> {
+        use Packet::*;
         
         fn payload_error(raw: PacketRaw, message: &str) -> Result<Packet, (Packet, String)> { Err((Unsupported(raw), String::from(message))) }
         
@@ -117,14 +192,108 @@ impl Packet {
         let payload = &data[*i..(*i + size.len)];
         *i += size.len;
         
-        let raw = PacketRaw::new(key.to_vec(), size, payload.to_vec());
-        let mut packet: Packet;
+        let raw = PacketRaw::new(key.to_vec(), size.clone(), payload.to_vec());
+        let rawc = raw.clone();
+        let packet: Packet;
         loop { match key {
+            /* --- Console-agnostic Keys --- */
+            
             CONSOLE_TYPE => {
-                if size.len == 0 { return payload_error(raw, "Payload length is zero"); }
-                if size.len > 1 { return payload_error(raw, "Payload length too long for CONSOLE_TYPE"); }
-                packet = Packet::ConsoleType(raw, raw.payload[0]);
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for CONSOLE_TYPE"); }
+                packet = ConsoleType(rawc, raw.payload[0]);
             },
+            CONSOLE_REGION => {
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for CONSOLE_REGION"); }
+                packet = ConsoleRegion(rawc, raw.payload[0]);
+            },
+            GAME_TITLE => { packet = GameTitle(rawc, String::from_utf8_lossy(raw.payload.as_slice()).into()); },
+            //TODO hashes
+            
+            AUTHOR => { packet = Author(rawc, String::from_utf8_lossy(raw.payload.as_slice()).into()); },
+            CATEGORY => { packet = Category(rawc, String::from_utf8_lossy(raw.payload.as_slice()).into()); },
+            EMULATOR_NAME => { packet = EmulatorName(rawc, String::from_utf8_lossy(raw.payload.as_slice()).into()); },
+            EMULATOR_VERSION => { packet = EmulatorVersion(rawc, String::from_utf8_lossy(raw.payload.as_slice()).into()); },
+            
+            TAS_LAST_MODIFIED => {
+                if size.len != 8 { return payload_error(raw, "Payload length is invalid for TAS_LAST_MODIFIED"); }
+                packet = TasLastModified(rawc, to_u64(&raw.payload));
+            },
+            DUMP_LAST_MODIFIED => {
+                if size.len != 8 { return payload_error(raw, "Payload length is invalid for DUMP_LAST_MODIFIED"); }
+                packet = DumpLastModified(rawc, to_u64(&raw.payload));
+            },
+            TOTAL_FRAMES => {
+                if size.len != 4 { return payload_error(raw, "Payload length is invalid for TOTAL_FRAMES"); }
+                packet = TotalFrames(rawc, to_u32(&raw.payload));
+            },
+            RERECORDS => {
+                if size.len != 4 { return payload_error(raw, "Payload length is invalid for RERECORDS"); }
+                packet = Rerecords(rawc, to_u32(&raw.payload));
+            },
+            SOURCE_LINK => { packet = SourceLink(rawc, String::from_utf8_lossy(raw.payload.as_slice()).into()); },
+            
+            MEMORY_INIT => {
+                if size.len == 0 { return payload_error(raw, "Payload length is invalid for MEMORY_INIT"); }
+                let kind = raw.payload[0];
+                let v = raw.payload[1];
+                let k = raw.payload[2..(2 + v as usize)].to_vec();
+                let size = payload_len(&raw.payload, &mut 1);
+                let n: String = String::from_utf8_lossy(&raw.payload[3..(3 + size.len)]).into();
+                
+                if kind == 2 {
+                    packet = MemoryInit { raw: rawc, kind,  v: Some(v), k: Some(k), n: Some(n), p: Some(raw.payload[(3 + 2 + 1 + v as usize)..raw.payload.len()].to_vec()) };
+                } else {
+                    packet = MemoryInit { raw, kind, v: Some(v), k: Some(k), n: Some(n), p: None };
+                }
+            }
+            
+            BLANK_FRAMES => {
+                if size.len != 2 { return payload_error(raw, "Payload length is invalid for BLANK_FRAMES"); }
+                packet = BlankFrames(rawc, to_i16(&raw.payload));
+            },
+            VERIFIED => {
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for VERIFIED"); }
+                packet = Verified(rawc, raw.payload[0]);
+            },
+            
+            /* --- NES Keys --- */
+            
+            LATCH_FILTER => {
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for LATCH_FILTER"); }
+                packet = LatchFilter(rawc, raw.payload[0]);
+            },
+            CLOCK_FILTER => {
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for CLOCK_FILTER"); }
+                packet = ClockFilter(rawc, raw.payload[0]);
+            },
+            OVERREAD => {
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for OVERREAD"); }
+                packet = Overread(rawc, raw.payload[0]);
+            },
+            DPCM => {
+                if size.len != 1 { return payload_error(raw, "Payload length is invalid for DPCM"); }
+                packet = Dpcm(rawc, raw.payload[0]);
+            },
+            GAME_GENIE_CODE => {
+                if size.len != 6 && size.len != 8 { return payload_error(raw, "Payload length is invalid for GAME_GENIE_CODE"); }
+                packet = GameGenieCode(rawc, raw.payload);
+            },
+            
+            /* --- Input Frame/Timing Keys --- */
+            
+            INPUT_CHUNKS => {
+                if size.len < 2 { return payload_error(raw, "Payload length is invalid for INPUT_CHUNKS"); }
+                packet = InputChunks(rawc, raw.payload[0], raw.payload[1..raw.payload.len()].to_vec());
+            },
+            TRANSITION => {
+                if size.len < 5 { return payload_error(raw, "Payload length is invalid for TRANSITION"); }
+                packet = Transition(rawc, to_u32(&raw.payload[0..4]), raw.payload[4], raw.payload[5..raw.payload.len()].to_vec());
+            },
+            LAG_FRAME => {
+                if size.len != 8 { return payload_error(raw, "Payload length is invalid for LAG_FRAME"); }
+                packet = LagFrame(rawc, to_u32(&raw.payload[0..4]), to_u32(&raw.payload[4..8]));
+            }
+            
             
             _ => packet = Unsupported(raw)
         } break; }
@@ -132,15 +301,6 @@ impl Packet {
         Ok(packet)
     }
 }
-/*impl Display for Packet {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ConsoleType(val) => write!(f, "(ConsoleType, "),
-            
-            _ => write!(f, "{:?}", self)
-        }
-    }
-}*/
 
 #[derive(Default, Clone, Debug)]
 pub struct TasdMovie {
@@ -151,150 +311,25 @@ pub struct TasdMovie {
 impl TasdMovie {
     pub fn new(data: &Vec<u8>) -> Result<Self, String> {
         if data[0..4] != [0x54, 0x41, 0x53, 0x44] {
-            return Err(String::from("Magic Number doesn't match."));
+            return Err(String::from("Magic Number doesn't match. This file doesn't appear to be a TASD."));
         }
-        
-        fn payload_len_err_u16(len: usize, key: &[u8]) -> Result<TasdMovie, String> { Err(format!("Payload length of {}, unsupported for key {:04X}", len, to_u16(key))) }
         
         let mut tasd = Self::default();
         tasd.version = to_u16(&data[4..=5]);
         tasd.key_width = data[6];
         
-        let kw = tasd.key_width as usize;
         let mut i = 7;
-        for _ in i..data.len() {
+        loop {
             if i >= data.len() { break; }
             
-            let key = &data[i..(i + kw)];
-            i += kw;
-            println!("Key: {:02X} {:02X}", key[0], key[1]);
-            
-            loop { match key {
-                CONSOLE_TYPE => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len > 1 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::ConsoleType(data[i]));
-                    i += 1;
-                },
-                CONSOLE_REGION => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len > 1 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::ConsoleRegion(data[i]));
-                    i += 1;
-                },
-                GAME_TITLE => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    tasd.packets.push(Packet::GameTitle(String::from_utf8_lossy(&data[i..(i + len)]).into()));
-                    i += len;
-                },
-                //TODO hashes
-                
-                AUTHOR => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    tasd.packets.push(Packet::Author(String::from_utf8_lossy(&data[i..(i + len)]).into()));
-                    i += len;
-                },
-                CATEGORY => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    tasd.packets.push(Packet::Category(String::from_utf8_lossy(&data[i..(i + len)]).into()));
-                    i += len;
-                },
-                EMULATOR_NAME => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    tasd.packets.push(Packet::EmulatorName(String::from_utf8_lossy(&data[i..(i + len)]).into()));
-                    i += len;
-                },
-                EMULATOR_VERSION => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    tasd.packets.push(Packet::EmulatorVersion(String::from_utf8_lossy(&data[i..(i + len)]).into()));
-                    i += len;
-                },
-                
-                TAS_LAST_MODIFIED => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len != 8 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::TasLastModified(to_u64(&data[i..(i + len)])));
-                    i += len;
-                },
-                DUMP_LAST_MODIFIED => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len != 8 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::DumpLastModified(to_u64(&data[i..(i + len)])));
-                    i += len;
-                },
-                TOTAL_FRAMES => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len != 4 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::TotalFrames(to_u32(&data[i..(i + len)])));
-                    i += len;
-                },
-                RERECORDS => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len != 4 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::Rerecords(to_u32(&data[i..(i + len)])));
-                    i += len;
-                },
-                SOURCE_LINK => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    tasd.packets.push(Packet::SourceLink(String::from_utf8_lossy(&data[i..(i + len)]).into()));
-                    i += len;
-                },
-                
-                MEMORY_INIT => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    let kind = data[i];
-                    i += 1;
-                    if kind == 1 {
-                        tasd.packets.push(Packet::MemoryInit { kind, v: None, k: None, n: None, p: None });
-                        break;
-                    }
-                    
-                    let v = data[i];
-                    let k = data[(i + 1)..(i + 1 + v as usize)].to_vec();
-                    let len = payload_len(&data, &mut i);
-                    let n: String = String::from_utf8_lossy(&data[i..(i + len)]).into();
-                    
-                    match kind {
-                        2 => {
-                            
-                        },
-                        3..=6 => tasd.packets.push(Packet::MemoryInit { kind, v: Some(v), k: Some(k), n: Some(n), p: None }),
-                        
-                        _ => ()
-                    }
-                },
-                
-                BLANK_FRAMES => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len != 2 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::BlankFrames(to_i16(&data[i..(i + len)])));
-                    i += len;
-                },
-                VERIFIED => {
-                    let len = payload_len(&data, &mut i);
-                    if len == 0 { break; }
-                    if len > 1 { return payload_len_err_u16(len, key); }
-                    tasd.packets.push(Packet::Verified(data[i]));
-                    i += 1;
-                },
-                
-                
-                _ => i += payload_len(&data, &mut i)
-            } break; }
+            let result = Packet::parse(tasd.key_width as usize, data, &mut i);
+            if result.is_ok() {
+                tasd.packets.push(result.unwrap());
+            } else {
+                let error = result.err().unwrap();
+                tasd.packets.push(error.0);
+                println!("[Warning] {}", error.1);
+            }
         }
         
         Ok(tasd)
@@ -342,14 +377,6 @@ fn payload_len(data: &Vec<u8>, i: &mut usize) -> PayloadSize {
         length_bytes: len_bytes.to_vec(),
         len: len
     }
-    
-    /*match len_spec {
-        1 => data[*i] as usize,
-        2 => to_u16(&data[*i..(*i + 2)]) as usize,
-        4 => to_u32(&data[*i..(*i + 4)]) as usize,
-        8 => to_u64(&data[*i..(*i + 8)]) as usize,
-        _ => 0
-    }*/
 }
 
 
