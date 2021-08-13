@@ -1,7 +1,9 @@
-use std::convert::TryInto;
 use byteorder::{ReadBytesExt, BigEndian};
-use std::fmt::{Display, Formatter};
-use crate::spec::Packet::{ConsoleType, Unsupported};
+use std::fmt::Display;
+use strum_macros::EnumIter;
+use std::time::Instant;
+use chrono::{Utc, TimeZone};
+use phf::phf_map;
 
 macro_rules! key_const {
     ($name:ident, $upper:expr, $lower:expr) => {
@@ -9,6 +11,8 @@ macro_rules! key_const {
     };
 }
 
+pub const MAGIC_NUMBER: &[u8] = &[0x54, 0x41, 0x53, 0x44];
+pub const NEW_TASD_FILE: &[u8] = &[0x54, 0x41, 0x53, 0x44, 0x00, 0x01, 0x02];
 
 key_const!(CONSOLE_TYPE, 0x00, 0x01);
 key_const!(CONSOLE_REGION, 0x00, 0x02);
@@ -22,9 +26,9 @@ key_const!(DUMP_LAST_MODIFIED, 0x00, 0x09);
 key_const!(TOTAL_FRAMES, 0x00, 0x0A);
 key_const!(RERECORDS, 0x00, 0x0B);
 key_const!(SOURCE_LINK, 0x00, 0x0C);
-key_const!(MEMORY_INIT, 0x00, 0x0E);
-key_const!(BLANK_FRAMES, 0x00, 0x0F);
-key_const!(VERIFIED, 0x00, 0x10);
+key_const!(BLANK_FRAMES, 0x00, 0x0D);
+key_const!(VERIFIED, 0x00, 0x0E);
+key_const!(MEMORY_INIT, 0x00, 0x0F);
 
 key_const!(LATCH_FILTER, 0x01, 0x01);
 key_const!(CLOCK_FILTER, 0x01, 0x02);
@@ -38,8 +42,32 @@ key_const!(INPUT_CHUNKS, 0xFE, 0x01);
 key_const!(TRANSITION, 0xFE, 0x02);
 key_const!(LAG_FRAME, 0xFE, 0x03);
 
+fn spec_description(key: &[u8]) -> &str {
+    match key {
+        CONSOLE_TYPE => "ConsoleType - ",
+        _ => ""
+    }
+}
 
-#[derive(PartialEq, Clone, Debug)]
+static CONSOLE_TYPE_MAP: phf::Map<u8, &'static str> = phf_map! {
+    0x01u8 => "NES",
+    0x02u8 => "SNES",
+    0x03u8 => "N64",
+    0x04u8 => "GC",
+    0x05u8 => "GB",
+    0x06u8 => "GBC",
+    0x07u8 => "GBA",
+    0x08u8 => "Genesis",
+    0x09u8 => "A2600",
+};
+
+static CONSOLE_REGION_MAP: phf::Map<u8, &'static str> = phf_map! {
+    0x01u8 => "NTSC",
+    0x02u8 => "PAL",
+};
+
+
+#[derive(PartialEq, Clone, Debug, Default)]
 pub struct PayloadSize {
     pub exponent: u8,
     pub length_bytes: Vec<u8>,
@@ -51,7 +79,7 @@ impl Display for PayloadSize {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Default)]
 pub struct PacketRaw {
     key: Vec<u8>,
     size: PayloadSize,
@@ -77,7 +105,7 @@ impl PacketRaw {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, EnumIter)]
 pub enum Packet {
     // Console-agnostic Keys //
     
@@ -90,11 +118,14 @@ pub enum Packet {
     EmulatorName(PacketRaw, String),
     EmulatorVersion(PacketRaw, String),
     
-    TasLastModified(PacketRaw, u64),
-    DumpLastModified(PacketRaw, u64),
+    TasLastModified(PacketRaw, i64),
+    DumpLastModified(PacketRaw, i64),
     TotalFrames(PacketRaw, u32),
     Rerecords(PacketRaw, u32),
     SourceLink(PacketRaw, String),
+    
+    BlankFrames(PacketRaw, i16),
+    Verified(PacketRaw, u8),
     
     MemoryInit {
         raw: PacketRaw,
@@ -104,9 +135,6 @@ pub enum Packet {
         n: Option<String>,
         p: Option<Vec<u8>>,
     },
-    
-    BlankFrames(PacketRaw, i16),
-    Verified(PacketRaw, u8),
     
     // NES Keys //
     LatchFilter(PacketRaw, u8),
@@ -145,15 +173,15 @@ impl Display for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Packet::*;
         match self {
-            ConsoleType(raw, val) => write!(f, "ConsoleType({}, {:02X})", raw, val),
-            ConsoleRegion(raw, val) => write!(f, "ConsoleRegion({}, {:02X})", raw, val),
+            ConsoleType(raw, val) => write!(f, "ConsoleType({}, {})", raw, CONSOLE_TYPE_MAP.get(val).unwrap_or(&"Unknown")),
+            ConsoleRegion(raw, val) => write!(f, "ConsoleRegion({}, {})", raw, CONSOLE_REGION_MAP.get(val).unwrap_or(&"Unknown")),
             GameTitle(raw, val) => write!(f, "GameTitle({}, {})", raw, val),
             Author(raw, val) => write!(f, "Author({}, {})", raw, val),
             Category(raw, val) => write!(f, "Category({}, {})", raw, val),
             EmulatorName(raw, val) => write!(f, "EmulatorName({}, {})", raw, val),
             EmulatorVersion(raw, val) => write!(f, "EmulatorVersion({}, {})", raw, val),
-            TasLastModified(raw, val) => write!(f, "TasLastModified({}, {:08X})", raw, val),
-            DumpLastModified(raw, val) => write!(f, "DumpLastModified({}, {:08X})", raw, val),
+            TasLastModified(raw, val) => write!(f, "TasLastModified({}, {})", raw, Utc.timestamp(*val, 0).to_string()),
+            DumpLastModified(raw, val) => write!(f, "DumpLastModified({}, {})", raw, Utc.timestamp(*val, 0).to_string()),
             TotalFrames(raw, val) => write!(f, "TotalFrames({}, {})", raw, val),
             Rerecords(raw, val) => write!(f, "Rerecords({}, {})", raw, val),
             SourceLink(raw, val) => write!(f, "SourceLink({}, {})", raw, val),
@@ -178,6 +206,16 @@ impl Display for Packet {
             Verified(raw, val) => write!(f, "Verified({}, {})", raw, val),
             _ => write!(f, "{:?}", self)
         }
+    }
+}
+impl From<Packet> for String {
+    fn from(packet: Packet) -> Self {
+        format!("{}", packet)
+    }
+}
+impl From<&Packet> for String {
+    fn from(packet: &Packet) -> Self {
+        format!("{}", packet)
     }
 }
 impl Packet {
@@ -216,11 +254,11 @@ impl Packet {
             
             TAS_LAST_MODIFIED => {
                 if size.len != 8 { return payload_error(raw, "Payload length is invalid for TAS_LAST_MODIFIED"); }
-                packet = TasLastModified(rawc, to_u64(&raw.payload));
+                packet = TasLastModified(rawc, to_u64(&raw.payload) as i64);
             },
             DUMP_LAST_MODIFIED => {
                 if size.len != 8 { return payload_error(raw, "Payload length is invalid for DUMP_LAST_MODIFIED"); }
-                packet = DumpLastModified(rawc, to_u64(&raw.payload));
+                packet = DumpLastModified(rawc, to_u64(&raw.payload) as i64);
             },
             TOTAL_FRAMES => {
                 if size.len != 4 { return payload_error(raw, "Payload length is invalid for TOTAL_FRAMES"); }
@@ -310,7 +348,7 @@ pub struct TasdMovie {
 }
 impl TasdMovie {
     pub fn new(data: &Vec<u8>) -> Result<Self, String> {
-        if data[0..4] != [0x54, 0x41, 0x53, 0x44] {
+        if &data[0..4] != MAGIC_NUMBER {
             return Err(String::from("Magic Number doesn't match. This file doesn't appear to be a TASD."));
         }
         
