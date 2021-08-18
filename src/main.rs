@@ -1,23 +1,40 @@
-use std::path::{PathBuf, Path};
-use std::time::Instant;
-use regex::Regex;
-use std::io::{stdout, Error, Write};
-use crossterm::execute;
-use crate::spec::{NEW_TASD_FILE, TasdMovie};
-use crossterm::terminal::{SetTitle, Clear, ClearType};
 use std::ffi::OsStr;
-use strum::IntoEnumIterator;
+use std::io::{Error, stdout, Write};
+use std::path::PathBuf;
+use std::time::Instant;
 
-mod spec;
+use crossterm::execute;
+use crossterm::terminal::{SetTitle};
+use regex::Regex;
+
+use definitions::NEW_TASD_FILE;
+use movie::TasdMovie;
+
+mod util;
+mod lookup;
+mod definitions;
+mod movie;
+
+macro_rules! fstr {
+    ($text:expr) => {
+        String::from($text);
+    };
+}
+/*macro_rules! some_fstr {
+    ($text:expr) => {
+        Some(String::from($text));
+    };
+}*/
 
 fn main() {
+    
     //execute!(stdout(), Clear(ClearType::All)).unwrap();
     execute!(stdout(), SetTitle("TASD-Edit")).unwrap();
     
     let cli_state = parse_args();
     let tasd_file = std::fs::read(cli_state.tasd_path).unwrap();
     let start = Instant::now();
-    let mut tasd = spec::TasdMovie::new(&tasd_file).unwrap();
+    let mut tasd = TasdMovie::new(&tasd_file).unwrap();
     let end = Instant::now();
     println!("Parse Time: {:.9} seconds\n", (end - start).as_secs_f64());
     
@@ -29,12 +46,12 @@ fn main() {
 fn main_menu(tasd: &mut TasdMovie) -> bool {
     let selection = cli_selection(
         [
-            String::from("Exit/Quit"),
-            String::from("Modify a packet"),
-            String::from("Add a new packet"),
-            String::from("Remove a packet"),
-            String::from("Display all packets"),
-        ].iter(), Some(String::from("What would you like to do?\n")), Some(String::from("Option[0]: "))
+            fstr!("Exit/Quit"),
+            fstr!("Modify a packet"),
+            fstr!("Add a new packet"),
+            fstr!("Remove a packet"),
+            fstr!("Display all packets"),
+        ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
     );
     
     match selection {
@@ -65,23 +82,184 @@ fn edit_menu(tasd: &mut TasdMovie) {
 }
 
 fn add_menu(tasd: &mut TasdMovie) -> bool {
-    let mut options = Vec::<String>::new();
-    options.push(String::from("Return to main menu"));
-    for packet_kind in spec::Packet::iter() {
-        println!("{}", packet_kind);
+/*    let mut options = Vec::<String>::new();
+    options.push(fstr!("Return to main menu"));
+    
+    let mut keypairs = Vec::<(u8, u8)>::new();
+    for i in 0..=255 {
+        for j in 0..=255 {
+            let opt = key_description_lut(&[i, j]);
+            if opt.is_some() {
+                let opt = opt.unwrap();
+                options.push(format!("{} - {}", opt.0, opt.1));
+                keypairs.push((i, j));
+            }
+        }
+    }
+    let selection = cli_selection(options.iter(), Some(fstr!("Select the packet you'd like to add.\n")), Some(fstr!("Packet index[0]: ")));
+    if selection != 0 {
+        use spec::*;
+        use spec::Packet::*;
+        
+        let pair = keypairs.get(selection - 1).unwrap();
+        let patt: &[u8] = &[pair.0, pair.1];
+        let packet = match patt {
+            CONSOLE_TYPE => {
+                let selection = cli_selection(Vec::from([
+                    fstr!("Return to menu"), fstr!("NES"), fstr!("SNES"), fstr!("N64"), fstr!("GC"), fstr!("GB"), fstr!("GBC"), fstr!("GBA"), fstr!("Genesis"), fstr!("A2600"),
+                ]).iter(), None, Some(fstr!("Console Type[0]: ")));
+                if selection == 0 {
+                    return false;
+                }
+                let payload = &[selection as u8];
+                
+                ConsoleType(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(payload), payload.to_vec()), payload[0])
+            },
+            CONSOLE_REGION => {
+                let selection = cli_selection(Vec::from([
+                    fstr!("Return to menu"), fstr!("NTSC"), fstr!("PAL")
+                ]).iter(), None, some_fstr!("Console Region[0]: "));
+                if selection == 0 {
+                    return false;
+                }
+                let payload = &[selection as u8];
+                
+                ConsoleRegion(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(payload), payload.to_vec()), payload[0])
+            },
+            GAME_TITLE => {
+                let text = cli_read(some_fstr!("Game title: "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                
+                GameTitle(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
+            },
+            AUTHOR => {
+                let text = cli_read(some_fstr!("Author: "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                
+                Author(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
+            },
+            CATEGORY => {
+                let text = cli_read(some_fstr!("Category: "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                
+                Category(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
+            },
+            EMULATOR_NAME => {
+                let text = cli_read(some_fstr!("Emulator name: "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                
+                EmulatorName(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
+            },
+            EMULATOR_VERSION => {
+                let text = cli_read(some_fstr!("Emulator version: "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                
+                EmulatorVersion(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
+            },
+            TAS_LAST_MODIFIED => {
+                let text = cli_read(some_fstr!("TAS last modified (epoch seconds or YYYY-MM-DD): "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                let mut epoch = 0i64;
+                let parse_attempt = NaiveDate::parse_from_str(&text, "%Y-%m-%d");
+                if parse_attempt.is_ok() {
+                    let parsed = parse_attempt.unwrap();
+                    let date = Date::<Utc>::from_utc(parsed, Utc);
+                    epoch = date.and_time(NaiveTime::from_hms(0,0,0)).unwrap().timestamp();
+                } else {
+                    let parse_attempt = i64::from_str(&text);
+                    if parse_attempt.is_err() { return false; }
+                    epoch = parse_attempt.unwrap();
+                }
+                let payload = spec::expand_i64(epoch, 8);
+                
+                TasLastModified(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), epoch)
+            },
+            TOTAL_FRAMES => {
+                let text = cli_read(some_fstr!("Total frames: "));
+                if text.is_err() { return false; }
+                let parse_attempt = u32::from_str(&text.unwrap());
+                if parse_attempt.is_err() { return false; }
+                let frames = parse_attempt.unwrap();
+                let payload = spec::expand_usize(frames as usize, 4);
+                
+                TotalFrames(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), frames)
+            },
+            RERECORDS => {
+                let text = cli_read(some_fstr!("Total frames: "));
+                if text.is_err() { return false; }
+                let parse_attempt = u32::from_str(&text.unwrap());
+                if parse_attempt.is_err() { return false; }
+                let rerecords = parse_attempt.unwrap();
+                let payload = spec::expand_usize(rerecords as usize, 4);
+                
+                Rerecords(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), rerecords)
+            },
+            SOURCE_LINK => {
+                let text = cli_read(some_fstr!("Source link (url string): "));
+                if text.is_err() { return false; }
+                let text = text.unwrap();
+                
+                SourceLink(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
+            },
+            BLANK_FRAMES => {
+                let text = cli_read(some_fstr!("Blank frames (number from -32767 to +32767): "));
+                if text.is_err() { return false; }
+                let parse_attempt = i16::from_str(&text.unwrap());
+                if parse_attempt.is_err() { return false; }
+                let frames = parse_attempt.unwrap();
+                let payload = spec::expand_usize(frames as usize, 2);
+                
+                BlankFrames(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), frames)
+            },
+            VERIFIED => {
+                let text = cli_read(some_fstr!("Verified (number; 0 = false, 1 = true): "));
+                if text.is_err() { return false; }
+                let parse_attempt = u8::from_str(&text.unwrap());
+                if parse_attempt.is_err() { return false; }
+                let verified = parse_attempt.unwrap();
+                let payload = [verified].to_vec();
+                
+                Verified(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), verified)
+            },
+            //TODO: MEMORY_INIT =>      (),
+            /*LATCH_FILTER =>     (),
+            CLOCK_FILTER =>     (),
+            OVERREAD =>         (),
+            DPCM =>             (),
+            GAME_GENIE_CODE =>  (),
+            INPUT_CHUNKS =>     (),
+            TRANSITION =>       (),
+            LAG_FRAME_CHUNK =>  (),*/
+            _ => Packet::Unsupported(PacketRaw::default())
+        };
+        match packet { Unsupported(_) => { return false; }, _ => () }
+        
+        tasd.packets.push(packet);
+        
+        dump_modified(tasd);
+        
+        println!("New packet added to file!\n");
+        return false;
     }
     
+    */
     true
 }
 
 fn remove_menu(tasd: &mut TasdMovie) -> bool {
     let mut options = Vec::<String>::new();
-    options.push(String::from("Return to main menu"));
+    options.push(fstr!("Return to main menu"));
     for packet in &tasd.packets {
-        options.push(packet.to_string());
+        options.push(packet.get_packet_spec().to_string());
     }
     
-    let selection = cli_selection(options.iter(), Some(String::from("Select the packet you wish to remove.\n")), Some(String::from("Packet index[0]: ")));
+    let selection = cli_selection(options.iter(), Some(fstr!("Select the packet you wish to remove.\n")), Some(fstr!("Packet index[0]: ")));
     if selection != 0 {
         println!("Packet removed.\n");
         tasd.packets.remove(selection - 1);
@@ -96,17 +274,31 @@ fn display_packets(tasd: &TasdMovie) {
     let padding = ((tasd.packets.len() as f32).log10() as usize) + 1;
     for (i, packet) in tasd.packets.iter().enumerate() {
         match packet {
-            spec::Packet::InputChunks(_, _, _) => {
+            /*spec::Packet::InputChunks(_, _, _) => {
                 //println!("[{:padding$.0}]: {}", i, packet, padding=padding);
-            },
+            },*/
             
             _ => {
-                println!("[{:padding$.0}]: {}", i, packet, padding=padding);
+                println!("[{:padding$.0}]: {}: {}", i, packet.get_packet_spec().name, packet.formatted_payload(), padding=padding);
             }
         }
     }
     println!();
 }
+
+/*fn dump_modified(tasd: &mut TasdMovie) {
+    for packet in tasd.packets.iter_mut() {
+        match packet {
+            Packet::DumpLastModified(raw, val) => {
+                let epoch = Utc::now().timestamp();
+                let payload = spec::expand_i64(epoch, 8);
+                raw.payload = payload;
+                *val = epoch;
+            },
+            _ => ()
+        }
+    }
+}*/
 
 #[derive(Default)]
 struct CliState {
