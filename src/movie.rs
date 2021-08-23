@@ -1,15 +1,18 @@
 
 use crate::definitions::*;
-use crate::util::to_u16;
+use crate::util::{to_u16, to_bytes};
+use std::path::PathBuf;
 
 #[derive(Default, Clone, Debug)]
 pub struct TasdMovie {
     pub version: u16,
     pub key_width: u8,
     pub packets: Vec<Box<dyn Packet>>,
+    pub source_file: PathBuf,
 }
 impl TasdMovie {
-    pub fn new(data: &Vec<u8>) -> Result<Self, String> {
+    pub fn new(path: &PathBuf) -> Result<Self, String> {
+        let data = &std::fs::read(path).unwrap();
         if &data[0..4] != MAGIC_NUMBER {
             return Err(String::from("Magic Number doesn't match. This file doesn't appear to be a TASD."));
         }
@@ -17,6 +20,7 @@ impl TasdMovie {
         let mut tasd = Self::default();
         tasd.version = to_u16(&data[4..=5]);
         tasd.key_width = data[6];
+        tasd.source_file = path.clone();
         
         let mut i = 7;
         loop {
@@ -54,5 +58,19 @@ impl TasdMovie {
         }
         
         Ok(tasd)
+    }
+    
+    pub fn dump(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        MAGIC_NUMBER.iter().for_each(|byte| out.push(*byte));
+        to_bytes(self.version as usize, 2).iter().for_each(|byte| out.push(*byte));
+        out.push(0x02);
+        self.packets.iter().for_each(|packet| packet.get_raw().iter().for_each(|byte| out.push(*byte)));
+        
+        out
+    }
+    
+    pub fn save(&self) {
+        std::fs::write(self.source_file.clone(), self.dump()).unwrap();
     }
 }

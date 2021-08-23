@@ -1,14 +1,16 @@
 use std::ffi::OsStr;
 use std::io::{Error, stdout, Write};
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::time::Instant;
 
 use crossterm::execute;
 use crossterm::terminal::{SetTitle};
 use regex::Regex;
 
-use definitions::NEW_TASD_FILE;
+use definitions::*;
 use movie::TasdMovie;
+use crate::lookup::{key_spec_lut, console_type_lut, console_region_lut, memory_init_lut, transition_lut};
+use chrono::{NaiveDate, Date, NaiveTime, Utc};
 
 mod util;
 mod lookup;
@@ -20,11 +22,11 @@ macro_rules! fstr {
         String::from($text);
     };
 }
-/*macro_rules! some_fstr {
+macro_rules! some_fstr {
     ($text:expr) => {
         Some(String::from($text));
     };
-}*/
+}
 
 fn main() {
     
@@ -32,9 +34,8 @@ fn main() {
     execute!(stdout(), SetTitle("TASD-Edit")).unwrap();
     
     let cli_state = parse_args();
-    let tasd_file = std::fs::read(cli_state.tasd_path).unwrap();
     let start = Instant::now();
-    let mut tasd = TasdMovie::new(&tasd_file).unwrap();
+    let mut tasd = TasdMovie::new(&cli_state.tasd_path).unwrap();
     let end = Instant::now();
     println!("Parse Time: {:.9} seconds\n", (end - start).as_secs_f64());
     
@@ -47,7 +48,7 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
     let selection = cli_selection(
         [
             fstr!("Exit/Quit"),
-            fstr!("Modify a packet"),
+            fstr!("Modify a packet (unimplemented)"),
             fstr!("Add a new packet"),
             fstr!("Remove a packet"),
             fstr!("Display all packets"),
@@ -55,13 +56,12 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
     );
     
     match selection {
-        0 => true,
         1 => {
             edit_menu(tasd);
             false
         },
         2 => {
-            add_menu(tasd);
+            while !add_menu(tasd) {}
             false
         },
         3 => {
@@ -77,192 +77,261 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
     }
 }
 
+#[allow(unused)]
 fn edit_menu(tasd: &mut TasdMovie) {
     
 }
 
 fn add_menu(tasd: &mut TasdMovie) -> bool {
-/*    let mut options = Vec::<String>::new();
+    let mut options = Vec::<String>::new();
     options.push(fstr!("Return to main menu"));
-    
-    let mut keypairs = Vec::<(u8, u8)>::new();
-    for i in 0..=255 {
-        for j in 0..=255 {
-            let opt = key_description_lut(&[i, j]);
-            if opt.is_some() {
-                let opt = opt.unwrap();
-                options.push(format!("{} - {}", opt.0, opt.1));
-                keypairs.push((i, j));
+    let mut specs = Vec::new();
+    for upper in 0..=255 {
+        for lower in 0..=255 {
+            let key = [upper, lower];
+            if key != DUMP_LAST_MODIFIED {
+                let spec = key_spec_lut(key);
+                if spec.is_some() {
+                    let spec = spec.unwrap();
+                    specs.push(([upper, lower], spec.clone()));
+                    options.push(format!("{} = {}", spec.name, spec.description));
+                }
             }
         }
     }
-    let selection = cli_selection(options.iter(), Some(fstr!("Select the packet you'd like to add.\n")), Some(fstr!("Packet index[0]: ")));
-    if selection != 0 {
-        use spec::*;
-        use spec::Packet::*;
+    let selection = cli_selection(options.iter(), some_fstr!("Select the packet you'd like to add.\n"), some_fstr!("Packet Type[0]: "));
+    if selection == 0 { return true; }
+    
+    let spec = &specs[selection - 1];
+    let packet: Box<dyn Packet>;
+    match spec.0 {
+        CONSOLE_TYPE => {
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push(fstr!("Return to add menu"));
+            for i in 1..=255 {
+                let s = console_type_lut(i);
+                if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
+            }
+            let selection = cli_selection(options.iter(), None, some_fstr!("Console Type[0]: "));
+            if selection == 0 { return false; }
+            packet = ConsoleType::new(kinds[selection - 1]);
+        },
+        CONSOLE_REGION => {
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push(fstr!("Return to add menu"));
+            for i in 1..=255 {
+                let s = console_region_lut(i);
+                if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
+            }
+            let selection = cli_selection(options.iter(), None, some_fstr!("Console Region[0]: "));
+            if selection == 0 { return false; }
+            packet = ConsoleRegion::new(kinds[selection - 1]);
+        },
+        GAME_TITLE => {
+            let text = cli_read(some_fstr!("Game title: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = GameTitle::new(text.unwrap());
+        },
+        AUTHOR => {
+            let text = cli_read(some_fstr!("Author: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = Author::new(text.unwrap());
+        },
+        CATEGORY => {
+            let text = cli_read(some_fstr!("Category: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = Category::new(text.unwrap());
+        },
+        EMULATOR_NAME => {
+            let text = cli_read(some_fstr!("Emulator name: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = EmulatorName::new(text.unwrap());
+        },
+        EMULATOR_VERSION => {
+            let text = cli_read(some_fstr!("Emulator version: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = EmulatorVersion::new(text.unwrap());
+        },
+        TAS_LAST_MODIFIED => {
+            let text = cli_read(some_fstr!("TAS last modified (epoch seconds, YYYY-MM-DD, or YYYY-MM-DD HH:MM:SS): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let text = text.unwrap();
+            
+            let epoch;
+            let mut parse_attempt = NaiveDate::parse_from_str(&text, "%Y-%m-%d %H:%M:%S");
+            if parse_attempt.is_err() {
+                parse_attempt = NaiveDate::parse_from_str(&text, "%Y-%m-%d");
+            }
+            if parse_attempt.is_ok() {
+                let parsed = parse_attempt.unwrap();
+                let date = Date::<Utc>::from_utc(parsed, Utc);
+                epoch = date.and_time(NaiveTime::from_hms(0,0,0)).unwrap().timestamp();
+            } else {
+                let parse_attempt = text.parse();
+                if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+                epoch = parse_attempt.unwrap();
+            }
+            packet = TASLastModified::new(epoch);
+        },
+        TOTAL_FRAMES => {
+            let text = cli_read(some_fstr!("Total frames: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = TotalFrames::new(parse_attempt.unwrap());
+        },
+        RERECORDS => {
+            let text = cli_read(some_fstr!("Rerecord count: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = Rerecords::new(parse_attempt.unwrap());
+        },
+        SOURCE_LINK => {
+            let text = cli_read(some_fstr!("Source link/url: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = SourceLink::new(text.unwrap());
+        },
+        BLANK_FRAMES => {
+            let text = cli_read(some_fstr!("Blank frames (-32768 to +32767): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = BlankFrames::new(parse_attempt.unwrap());
+        },
+        VERIFIED => {
+            let text = cli_read(some_fstr!("Has been verified (true or false): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse::<bool>();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = Verified::new(parse_attempt.unwrap() as u8);
+        },
+        MEMORY_INIT => {
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push(fstr!("Return to add menu"));
+            for i in 1..=255 {
+                let s = memory_init_lut(i);
+                if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
+            }
+            let selection = cli_selection(options.iter(), None, some_fstr!("Initialization type[0]: "));
+            if selection == 0 { return false; }
+            let kind = kinds[selection - 1];
+            
+            let name = cli_read(some_fstr!("Name of memory space: "));
+            if name.is_err() { println!("Err: {:?}\n", name.err().unwrap()); return false; }
+            let mut payload = None;
+            if kind == 0x02 {
+                let path = cli_read(some_fstr!("Path to file containing memory: "));
+                if path.is_err() { println!("Err: {:?}\n", path.err().unwrap()); return false; }
+                let path = path.unwrap();
+                let path = Path::new(&path);
+                if !path.exists() || !path.is_file() { println!("Path either doesn't exist or isn't a file.\n"); return false; }
+                let data_result = std::fs::read(path);
+                if data_result.is_err() { println!("Err: {:?}\n", data_result.err().unwrap()); return false; }
+                payload = Some(data_result.unwrap());
+            }
+            packet = MemoryInit::new(kind, name.unwrap(), payload);
+        },
         
-        let pair = keypairs.get(selection - 1).unwrap();
-        let patt: &[u8] = &[pair.0, pair.1];
-        let packet = match patt {
-            CONSOLE_TYPE => {
-                let selection = cli_selection(Vec::from([
-                    fstr!("Return to menu"), fstr!("NES"), fstr!("SNES"), fstr!("N64"), fstr!("GC"), fstr!("GB"), fstr!("GBC"), fstr!("GBA"), fstr!("Genesis"), fstr!("A2600"),
-                ]).iter(), None, Some(fstr!("Console Type[0]: ")));
-                if selection == 0 {
-                    return false;
-                }
-                let payload = &[selection as u8];
-                
-                ConsoleType(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(payload), payload.to_vec()), payload[0])
-            },
-            CONSOLE_REGION => {
-                let selection = cli_selection(Vec::from([
-                    fstr!("Return to menu"), fstr!("NTSC"), fstr!("PAL")
-                ]).iter(), None, some_fstr!("Console Region[0]: "));
-                if selection == 0 {
-                    return false;
-                }
-                let payload = &[selection as u8];
-                
-                ConsoleRegion(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(payload), payload.to_vec()), payload[0])
-            },
-            GAME_TITLE => {
-                let text = cli_read(some_fstr!("Game title: "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                
-                GameTitle(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
-            },
-            AUTHOR => {
-                let text = cli_read(some_fstr!("Author: "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                
-                Author(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
-            },
-            CATEGORY => {
-                let text = cli_read(some_fstr!("Category: "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                
-                Category(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
-            },
-            EMULATOR_NAME => {
-                let text = cli_read(some_fstr!("Emulator name: "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                
-                EmulatorName(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
-            },
-            EMULATOR_VERSION => {
-                let text = cli_read(some_fstr!("Emulator version: "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                
-                EmulatorVersion(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
-            },
-            TAS_LAST_MODIFIED => {
-                let text = cli_read(some_fstr!("TAS last modified (epoch seconds or YYYY-MM-DD): "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                let mut epoch = 0i64;
-                let parse_attempt = NaiveDate::parse_from_str(&text, "%Y-%m-%d");
-                if parse_attempt.is_ok() {
-                    let parsed = parse_attempt.unwrap();
-                    let date = Date::<Utc>::from_utc(parsed, Utc);
-                    epoch = date.and_time(NaiveTime::from_hms(0,0,0)).unwrap().timestamp();
-                } else {
-                    let parse_attempt = i64::from_str(&text);
-                    if parse_attempt.is_err() { return false; }
-                    epoch = parse_attempt.unwrap();
-                }
-                let payload = spec::expand_i64(epoch, 8);
-                
-                TasLastModified(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), epoch)
-            },
-            TOTAL_FRAMES => {
-                let text = cli_read(some_fstr!("Total frames: "));
-                if text.is_err() { return false; }
-                let parse_attempt = u32::from_str(&text.unwrap());
-                if parse_attempt.is_err() { return false; }
-                let frames = parse_attempt.unwrap();
-                let payload = spec::expand_usize(frames as usize, 4);
-                
-                TotalFrames(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), frames)
-            },
-            RERECORDS => {
-                let text = cli_read(some_fstr!("Total frames: "));
-                if text.is_err() { return false; }
-                let parse_attempt = u32::from_str(&text.unwrap());
-                if parse_attempt.is_err() { return false; }
-                let rerecords = parse_attempt.unwrap();
-                let payload = spec::expand_usize(rerecords as usize, 4);
-                
-                Rerecords(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), rerecords)
-            },
-            SOURCE_LINK => {
-                let text = cli_read(some_fstr!("Source link (url string): "));
-                if text.is_err() { return false; }
-                let text = text.unwrap();
-                
-                SourceLink(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(text.as_bytes()), text.as_bytes().to_vec()), text)
-            },
-            BLANK_FRAMES => {
-                let text = cli_read(some_fstr!("Blank frames (number from -32767 to +32767): "));
-                if text.is_err() { return false; }
-                let parse_attempt = i16::from_str(&text.unwrap());
-                if parse_attempt.is_err() { return false; }
-                let frames = parse_attempt.unwrap();
-                let payload = spec::expand_usize(frames as usize, 2);
-                
-                BlankFrames(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), frames)
-            },
-            VERIFIED => {
-                let text = cli_read(some_fstr!("Verified (number; 0 = false, 1 = true): "));
-                if text.is_err() { return false; }
-                let parse_attempt = u8::from_str(&text.unwrap());
-                if parse_attempt.is_err() { return false; }
-                let verified = parse_attempt.unwrap();
-                let payload = [verified].to_vec();
-                
-                Verified(PacketRaw::new(patt.to_vec(), PayloadSize::from_payload(&payload), payload), verified)
-            },
-            //TODO: MEMORY_INIT =>      (),
-            /*LATCH_FILTER =>     (),
-            CLOCK_FILTER =>     (),
-            OVERREAD =>         (),
-            DPCM =>             (),
-            GAME_GENIE_CODE =>  (),
-            INPUT_CHUNKS =>     (),
-            TRANSITION =>       (),
-            LAG_FRAME_CHUNK =>  (),*/
-            _ => Packet::Unsupported(PacketRaw::default())
-        };
-        match packet { Unsupported(_) => { return false; }, _ => () }
+        LATCH_FILTER => {
+            let text = cli_read(some_fstr!("Latch filter (specify positive integer; which will be multiplied by 0.1ms): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = LatchFilter::new(parse_attempt.unwrap());
+        },
+        CLOCK_FILTER => {
+            let text = cli_read(some_fstr!("Clock filter (specify positive integer; which will be multiplied by 0.25us): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = ClockFilter::new(parse_attempt.unwrap());
+        },
+        OVERREAD => {
+            let text = cli_read(some_fstr!("Overread (0 for a HIGH signal, or 1 for LOW): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = Overread::new(parse_attempt.unwrap());
+        },
+        DPCM => {
+            let text = cli_read(some_fstr!("Game is affected by DPCM (true or false): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            let parse_attempt = text.unwrap().parse::<bool>();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            packet = Dpcm::new(parse_attempt.unwrap() as u8);
+        },
+        GAME_GENIE_CODE => {
+            let text = cli_read(some_fstr!("Game genie code (6 or 8 characters): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            packet = GameGenieCode::new(text.unwrap());
+        },
         
-        tasd.packets.push(packet);
+        //TODO: INPUT_CHUNKS: Idea is to list all frames with an index, and let user specify before or after a specific index to insert a new packet.
         
-        dump_modified(tasd);
-        
-        println!("New packet added to file!\n");
-        return false;
+        TRANSITION => {
+            let index = cli_read(some_fstr!("Frame/Index number: "));
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return false; }
+            let parse_attempt = index.unwrap().parse::<u32>();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push(fstr!("Return to add menu"));
+            for i in 1..=255 {
+                let s = transition_lut(i);
+                if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
+            }
+            let selection = cli_selection(options.iter(), None, some_fstr!("Transition type[0]: "));
+            if selection == 0 { return false; }
+            let kind = kinds[selection - 1];
+            
+            let mut payload = None;
+            if kind == 0x03 {
+                unimplemented!();
+                //TODO: Controller Swap transition must wait for decision about how to identify controllers.
+            }
+            packet = Transition::new(parse_attempt.unwrap(), kind, payload);
+        },
+        LAG_FRAME_CHUNK => {
+            let index = cli_read(some_fstr!("Frame/Index number: "));
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return false; }
+            let index = index.unwrap().parse::<u32>();
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return false; }
+            
+            let length = cli_read(some_fstr!("Length of chunk: "));
+            if length.is_err() { println!("Err: {:?}\n", length.err().unwrap()); return false; }
+            let length = length.unwrap().parse::<u32>();
+            if length.is_err() { println!("Err: {:?}\n", length.err().unwrap()); return false; }
+            packet = LagFrameChunk::new(index.unwrap(), length.unwrap());
+        },
+        _ => { println!("Sorry, creating new packets of this type is currently unsupported.\n"); return false; }
     }
     
-    */
-    true
+    if packet.get_packet_spec().key != [0x00, 0x00] { // if packet is not unsupported...
+        tasd.packets.push(packet);
+        save_tasd(tasd);
+        println!("New packet added to file!\n");
+    }
+    
+    false
 }
 
 fn remove_menu(tasd: &mut TasdMovie) -> bool {
     let mut options = Vec::<String>::new();
     options.push(fstr!("Return to main menu"));
     for packet in &tasd.packets {
-        options.push(packet.get_packet_spec().to_string());
+        options.push(format!("{}: {}", packet.get_packet_spec().name, packet.formatted_payload()));
     }
     
     let selection = cli_selection(options.iter(), Some(fstr!("Select the packet you wish to remove.\n")), Some(fstr!("Packet index[0]: ")));
     if selection != 0 {
         println!("Packet removed.\n");
         tasd.packets.remove(selection - 1);
+        save_tasd(tasd);
         return false;
     }
     
@@ -273,32 +342,38 @@ fn display_packets(tasd: &TasdMovie) {
     println!("Version: {:#06X}, Key Width: {}", tasd.version, tasd.key_width);
     let padding = ((tasd.packets.len() as f32).log10() as usize) + 1;
     for (i, packet) in tasd.packets.iter().enumerate() {
-        match packet {
-            /*spec::Packet::InputChunks(_, _, _) => {
-                //println!("[{:padding$.0}]: {}", i, packet, padding=padding);
-            },*/
-            
-            _ => {
-                println!("[{:padding$.0}]: {}: {}", i, packet.get_packet_spec().name, packet.formatted_payload(), padding=padding);
-            }
-        }
+        println!("[{:padding$.0}]: {}: {}", i + 1, packet.get_packet_spec().name, packet.formatted_payload(), padding=padding);
     }
     println!();
 }
 
-/*fn dump_modified(tasd: &mut TasdMovie) {
-    for packet in tasd.packets.iter_mut() {
-        match packet {
-            Packet::DumpLastModified(raw, val) => {
-                let epoch = Utc::now().timestamp();
-                let payload = spec::expand_i64(epoch, 8);
-                raw.payload = payload;
-                *val = epoch;
+fn save_tasd(tasd: &mut TasdMovie) {
+    let mut exists = false;
+    let mut removals = Vec::new();
+    for (i, packet) in tasd.packets.iter_mut().enumerate() {
+        match packet.get_packet_spec().key {
+            DUMP_LAST_MODIFIED => {
+                if exists {
+                    removals.push(i);
+                } else {
+                    let epoch = Utc::now().timestamp();
+                    *packet = DumpLastModified::new(epoch);
+                    exists = true;
+                }
             },
             _ => ()
         }
     }
-}*/
+    removals.iter().for_each(|i| { tasd.packets.remove(*i); });
+    
+    if !exists {
+        let epoch = Utc::now().timestamp();
+        let packet = DumpLastModified::new(epoch);
+        tasd.packets.push(packet);
+    }
+    
+    tasd.save();
+}
 
 #[derive(Default)]
 struct CliState {
@@ -455,9 +530,9 @@ fn check_tasd_exists_create(path_ref: &mut PathBuf) {
             println!("Error: {:?}", result.err());
             exit(true, 1);
         }
-        println!("Created new file: {}\n", path.to_string_lossy());
+        println!("Created new file: {}", path.to_string_lossy());
     } else {
-        println!("Existing file found.\n");
+        println!("Existing file found.");
     }
     flush();
     *path_ref = path;

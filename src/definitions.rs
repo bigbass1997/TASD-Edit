@@ -45,6 +45,7 @@ key_const!(LAG_FRAME_CHUNK, 0xFE, 0x03);
 
 #[derive(Clone, Debug, Default)]
 pub struct PacketSpec {
+    pub key: [u8; 2],
     pub name: String,
     pub description: String,
 }
@@ -55,8 +56,8 @@ impl Display for PacketSpec {
 }
 
 macro_rules! packet_spec {
-    ($name:expr, $description:expr) => {
-        PacketSpec { name: String::from($name), description: String::from($description) }
+    ($key:expr, $name:expr, $description:expr) => {
+        PacketSpec { key: $key, name: String::from($name), description: String::from($description) }
     };
 }
 
@@ -96,7 +97,7 @@ impl Packet for Unsupported {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Unsupported", "Packet is not known to this software.")
+        packet_spec!([0x00, 0x00], "Unsupported", "Packet is not known to this software.")
     }
     fn formatted_payload(&self) -> String {
         let mut out = String::new();
@@ -110,17 +111,17 @@ impl Packet for Unsupported {
 
 
 ////////////////////////////////////// ConsoleType //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct ConsoleType {
     raw: Vec<u8>,
     payload: u8,
 }
 impl ConsoleType {
-    pub fn new(kind: u8) -> Self {
-        Self {
+    pub fn new(kind: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(CONSOLE_TYPE.to_vec(), vec![kind]),
             payload: kind,
-        }
+        })
     }
 }
 impl Packet for ConsoleType {
@@ -138,7 +139,7 @@ impl Packet for ConsoleType {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("ConsoleType", "The console this TAS is made for.")
+        packet_spec!(CONSOLE_TYPE, "ConsoleType", "The console this TAS is made for.")
     }
     fn formatted_payload(&self) -> String {
         console_type_lut(self.payload).unwrap_or("Unknown").to_string()
@@ -147,17 +148,17 @@ impl Packet for ConsoleType {
 
 
 ////////////////////////////////////// ConsoleRegion //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct ConsoleRegion {
     raw: Vec<u8>,
     payload: u8,
 }
 impl ConsoleRegion {
-    pub fn new(kind: u8) -> Self {
-        Self {
+    pub fn new(kind: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(CONSOLE_REGION.to_vec(), vec![kind]),
             payload: kind,
-        }
+        })
     }
 }
 impl Packet for ConsoleRegion {
@@ -175,7 +176,7 @@ impl Packet for ConsoleRegion {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("ConsoleRegion", "Console region required to play this TAS.")
+        packet_spec!(CONSOLE_REGION, "ConsoleRegion", "Console region required to play this TAS.")
     }
     fn formatted_payload(&self) -> String {
         console_region_lut(self.payload).unwrap_or("Unknown").to_string()
@@ -184,17 +185,17 @@ impl Packet for ConsoleRegion {
 
 
 ////////////////////////////////////// GameTitle //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct GameTitle {
     raw: Vec<u8>,
     payload: String,
 }
 impl GameTitle {
-    pub fn new(title: String) -> Self {
-        Self {
+    pub fn new(title: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(GAME_TITLE.to_vec(), title.as_bytes().to_vec()),
             payload: title,
-        }
+        })
     }
 }
 impl Packet for GameTitle {
@@ -212,7 +213,7 @@ impl Packet for GameTitle {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("GameTitle", "(string) Title of the game.")
+        packet_spec!(GAME_TITLE, "GameTitle", "(string) Title of the game.")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -221,17 +222,17 @@ impl Packet for GameTitle {
 
 
 ////////////////////////////////////// Author //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Author {
     raw: Vec<u8>,
     payload: String,
 }
 impl Author {
-    pub fn new(author: String) -> Self {
-        Self {
+    pub fn new(author: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(AUTHOR.to_vec(), author.as_bytes().to_vec()),
             payload: author,
-        }
+        })
     }
 }
 impl Packet for Author {
@@ -249,7 +250,7 @@ impl Packet for Author {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Author", "(string) Name of one author of the TAS. (e.g. \"Bender B. Rodriguez\")")
+        packet_spec!(AUTHOR, "Author", "(string) Name of one author of the TAS. (e.g. \"Bender B. Rodriguez\")")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -258,17 +259,17 @@ impl Packet for Author {
 
 
 ////////////////////////////////////// Category //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Category {
     raw: Vec<u8>,
     payload: String,
 }
 impl Category {
-    pub fn new(category: String) -> Self {
-        Self {
+    pub fn new(category: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(CATEGORY.to_vec(), category.as_bytes().to_vec()),
             payload: category,
-        }
+        })
     }
 }
 impl Packet for Category {
@@ -286,7 +287,7 @@ impl Packet for Category {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Category", "(string) Category of the TAS. (e.g. \"any%\")")
+        packet_spec!(CATEGORY, "Category", "(string) Category of the TAS. (e.g. \"any%\")")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -295,17 +296,17 @@ impl Packet for Category {
 
 
 ////////////////////////////////////// EmulatorName //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct EmulatorName {
     raw: Vec<u8>,
     payload: String,
 }
 impl EmulatorName {
-    pub fn new(emulator_name: String) -> Self {
-        Self {
+    pub fn new(emulator_name: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(EMULATOR_NAME.to_vec(), emulator_name.as_bytes().to_vec()),
             payload: emulator_name,
-        }
+        })
     }
 }
 impl Packet for EmulatorName {
@@ -323,7 +324,7 @@ impl Packet for EmulatorName {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("EmulatorName", "(string) Name of the emulator used to dump this file.")
+        packet_spec!(EMULATOR_NAME, "EmulatorName", "(string) Name of the emulator used to dump this file.")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -332,17 +333,17 @@ impl Packet for EmulatorName {
 
 
 ////////////////////////////////////// EmulatorVersion //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct EmulatorVersion {
     raw: Vec<u8>,
     payload: String,
 }
 impl EmulatorVersion {
-    pub fn new(emulator_version: String) -> Self {
-        Self {
+    pub fn new(emulator_version: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(EMULATOR_VERSION.to_vec(), emulator_version.as_bytes().to_vec()),
             payload: emulator_version,
-        }
+        })
     }
 }
 impl Packet for EmulatorVersion {
@@ -360,7 +361,7 @@ impl Packet for EmulatorVersion {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("EmulatorVersion", "(string) Version of the emulator.")
+        packet_spec!(EMULATOR_VERSION, "EmulatorVersion", "(string) Version of the emulator.")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -369,17 +370,17 @@ impl Packet for EmulatorVersion {
 
 
 ////////////////////////////////////// TASLastModified //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct TASLastModified {
     raw: Vec<u8>,
     payload: i64,
 }
 impl TASLastModified {
-    pub fn new(epoch: i64) -> Self {
-        Self {
+    pub fn new(epoch: i64) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(TAS_LAST_MODIFIED.to_vec(), to_bytes(epoch as usize, 8)),
             payload: epoch,
-        }
+        })
     }
 }
 impl Packet for TASLastModified {
@@ -397,7 +398,7 @@ impl Packet for TASLastModified {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("TASLastModified", "(Unix epoch in seconds) Last time the TAS movie was edited. Usually TASVideos.org publication date.")
+        packet_spec!(TAS_LAST_MODIFIED, "TASLastModified", "(Unix epoch in seconds) Last time the TAS movie was edited. Usually TASVideos.org publication date.")
     }
     fn formatted_payload(&self) -> String {
         Utc.timestamp(self.payload, 0).to_string()
@@ -406,17 +407,17 @@ impl Packet for TASLastModified {
 
 
 ////////////////////////////////////// DumpLastModified //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct DumpLastModified {
     raw: Vec<u8>,
     payload: i64,
 }
 impl DumpLastModified {
-    pub fn new(epoch: i64) -> Self {
-        Self {
+    pub fn new(epoch: i64) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(DUMP_LAST_MODIFIED.to_vec(), to_bytes(epoch as usize, 8)),
             payload: epoch,
-        }
+        })
     }
 }
 impl Packet for DumpLastModified {
@@ -434,7 +435,7 @@ impl Packet for DumpLastModified {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("DumpLastModified", "(Unix Epoch in seconds) Last time this file was edited.")
+        packet_spec!(DUMP_LAST_MODIFIED, "DumpLastModified", "(Unix Epoch in seconds) Last time this file was edited.")
     }
     fn formatted_payload(&self) -> String {
         Utc.timestamp(self.payload, 0).to_string()
@@ -443,17 +444,17 @@ impl Packet for DumpLastModified {
 
 
 ////////////////////////////////////// TotalFrames //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct TotalFrames {
     raw: Vec<u8>,
     payload: u32,
 }
 impl TotalFrames {
-    pub fn new(frames: u32) -> Self {
-        Self {
+    pub fn new(frames: u32) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(TOTAL_FRAMES.to_vec(), to_bytes(frames as usize, 8)),
             payload: frames,
-        }
+        })
     }
 }
 impl Packet for TotalFrames {
@@ -471,7 +472,7 @@ impl Packet for TotalFrames {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("TotalFrames", "Total number of frames from original movie, including lag frames. (useful for calculating movie length)")
+        packet_spec!(TOTAL_FRAMES, "TotalFrames", "Total number of frames from original movie, including lag frames. (useful for calculating movie length)")
     }
     fn formatted_payload(&self) -> String {
         format!("{}", self.payload)
@@ -480,17 +481,17 @@ impl Packet for TotalFrames {
 
 
 ////////////////////////////////////// Rerecords //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Rerecords {
     raw: Vec<u8>,
     payload: u32,
 }
 impl Rerecords {
-    pub fn new(rerecords: u32) -> Self {
-        Self {
+    pub fn new(rerecords: u32) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(RERECORDS.to_vec(), to_bytes(rerecords as usize, 8)),
             payload: rerecords,
-        }
+        })
     }
 }
 impl Packet for Rerecords {
@@ -508,7 +509,7 @@ impl Packet for Rerecords {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Rerecords", "TAS rerecord count.")
+        packet_spec!(RERECORDS, "Rerecords", "TAS rerecord count.")
     }
     fn formatted_payload(&self) -> String {
         format!("{}", self.payload)
@@ -517,17 +518,17 @@ impl Packet for Rerecords {
 
 
 ////////////////////////////////////// SourceLink //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct SourceLink {
     raw: Vec<u8>,
     payload: String,
 }
 impl SourceLink {
-    pub fn new(link: String) -> Self {
-        Self {
+    pub fn new(link: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(SOURCE_LINK.to_vec(), link.as_bytes().to_vec()),
             payload: link,
-        }
+        })
     }
 }
 impl Packet for SourceLink {
@@ -545,7 +546,7 @@ impl Packet for SourceLink {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("SourceLink", "(string) URL link to publication, video upload of this TAS, or any other relevant websites.")
+        packet_spec!(SOURCE_LINK, "SourceLink", "(string) URL link to publication, video upload of this TAS, or any other relevant websites.")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -554,17 +555,17 @@ impl Packet for SourceLink {
 
 
 ////////////////////////////////////// BlankFrames //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct BlankFrames {
     raw: Vec<u8>,
     payload: i16,
 }
 impl BlankFrames {
-    pub fn new(frames: i16) -> Self {
-        Self {
+    pub fn new(frames: i16) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(BLANK_FRAMES.to_vec(), to_bytes(frames as usize, 8)),
             payload: frames,
-        }
+        })
     }
 }
 impl Packet for BlankFrames {
@@ -582,7 +583,7 @@ impl Packet for BlankFrames {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("BlankFrames", "Signed 16-bit number of blank frames to prepend to the TAS inputs (positive number), or frames to ignore from the start of the TAS (negative number).")
+        packet_spec!(BLANK_FRAMES, "BlankFrames", "Signed 16-bit number of blank frames to prepend to the TAS inputs (positive number), or frames to ignore from the start of the TAS (negative number).")
     }
     fn formatted_payload(&self) -> String {
         format!("{}", self.payload)
@@ -591,17 +592,17 @@ impl Packet for BlankFrames {
 
 
 ////////////////////////////////////// Verified //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Verified {
     raw: Vec<u8>,
     payload: u8,
 }
 impl Verified {
-    pub fn new(verified: u8) -> Self {
-        Self {
+    pub fn new(verified: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(VERIFIED.to_vec(), vec![verified]),
             payload: verified,
-        }
+        })
     }
 }
 impl Packet for Verified {
@@ -619,7 +620,7 @@ impl Packet for Verified {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Verified", "Whether or not this TAS has been verified by someone. (boolean, value of either 00 or 01)")
+        packet_spec!(VERIFIED, "Verified", "Whether or not this TAS has been verified by someone. (boolean, value of either 00 or 01)")
     }
     fn formatted_payload(&self) -> String {
         match self.payload {
@@ -632,7 +633,7 @@ impl Packet for Verified {
 
 
 ////////////////////////////////////// MemoryInit //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct MemoryInit {
     raw: Vec<u8>,
     kind: u8,
@@ -640,7 +641,7 @@ pub struct MemoryInit {
     payload: Option<Vec<u8>>,
 }
 impl MemoryInit {
-    pub fn new(kind: u8, name: String, payload: Option<Vec<u8>>) -> Self {
+    pub fn new(kind: u8, name: String, payload: Option<Vec<u8>>) -> Box<Self> {
         let mut serialize_data = Vec::new();
         serialize_data.push(kind); // kind
         serialize_payload(Vec::new(), name.as_bytes().to_vec()).iter().for_each(|byte| serialize_data.push(*byte)); // v + k + n
@@ -648,12 +649,12 @@ impl MemoryInit {
             payload.clone().unwrap().iter().for_each(|byte| serialize_data.push(*byte)); // p (optional payload)
         }
         
-        Self {
+        Box::new(Self {
             raw: serialize_payload(MEMORY_INIT.to_vec(), serialize_data),
             kind: kind,
             name: name,
             payload: payload,
-        }
+        })
     }
 }
 impl Packet for MemoryInit {
@@ -682,7 +683,7 @@ impl Packet for MemoryInit {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("MemoryInit", "Initialization of named memory space. (1 byte type, v = 1 byte exponent for k, k = length of n, n = name string, p = memory payload)")
+        packet_spec!(MEMORY_INIT, "MemoryInit", "Initialization of named memory space. (1 byte type, v = 1 byte exponent for k, k = length of n, n = name string, p = memory payload)")
     }
     fn formatted_payload(&self) -> String {
         let mut out = memory_init_lut(self.kind).unwrap_or("Unknown Kind").to_string();
@@ -699,17 +700,17 @@ impl Packet for MemoryInit {
 
 
 ////////////////////////////////////// LatchFilter //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct LatchFilter {
     raw: Vec<u8>,
     payload: u8,
 }
 impl LatchFilter {
-    pub fn new(filter: u8) -> Self {
-        Self {
+    pub fn new(filter: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(LATCH_FILTER.to_vec(), vec![filter]),
             payload: filter,
-        }
+        })
     }
 }
 impl Packet for LatchFilter {
@@ -727,7 +728,7 @@ impl Packet for LatchFilter {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("LatchFilter", "Latch Filter time span. (value multiplied by 0.1ms; inclusive range of 0.0ms to 25.5ms)")
+        packet_spec!(LATCH_FILTER, "LatchFilter", "Latch Filter time span. (value multiplied by 0.1ms; inclusive range of 0.0ms to 25.5ms)")
     }
     fn formatted_payload(&self) -> String {
         format!("{:.1}ms", self.payload as f32 * 0.1f32).to_string()
@@ -736,17 +737,17 @@ impl Packet for LatchFilter {
 
 
 ////////////////////////////////////// ClockFilter //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct ClockFilter {
     raw: Vec<u8>,
     payload: u8,
 }
 impl ClockFilter {
-    pub fn new(filter: u8) -> Self {
-        Self {
+    pub fn new(filter: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(CLOCK_FILTER.to_vec(), vec![filter]),
             payload: filter,
-        }
+        })
     }
 }
 impl Packet for ClockFilter {
@@ -764,7 +765,7 @@ impl Packet for ClockFilter {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("ClockFilter", "Clock Filter time span. (value multiplied by 0.25us; inclusive range of 0.0us to 63.75us)")
+        packet_spec!(CLOCK_FILTER, "ClockFilter", "Clock Filter time span. (value multiplied by 0.25us; inclusive range of 0.0us to 63.75us)")
     }
     fn formatted_payload(&self) -> String {
         format!("{:.2}us", self.payload as f32 * 0.25f32).to_string()
@@ -773,17 +774,17 @@ impl Packet for ClockFilter {
 
 
 ////////////////////////////////////// Overread //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Overread {
     raw: Vec<u8>,
     payload: u8,
 }
 impl Overread {
-    pub fn new(overread: u8) -> Self {
-        Self {
+    pub fn new(overread: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(OVERREAD.to_vec(), vec![overread]),
             payload: overread,
-        }
+        })
     }
 }
 impl Packet for Overread {
@@ -801,7 +802,7 @@ impl Packet for Overread {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Overread", "The data value to use when overread clock pulses occur. (active-low: 0 = HIGH, 1 = LOW)")
+        packet_spec!(OVERREAD, "Overread", "The data value to use when overread clock pulses occur. (active-low: 0 = HIGH, 1 = LOW)")
     }
     fn formatted_payload(&self) -> String {
         match self.payload {
@@ -814,17 +815,17 @@ impl Packet for Overread {
 
 
 ////////////////////////////////////// DPCM //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Dpcm {
     raw: Vec<u8>,
     payload: u8,
 }
 impl Dpcm {
-    pub fn new(dpcm: u8) -> Self {
-        Self {
+    pub fn new(dpcm: u8) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(DPCM.to_vec(), vec![dpcm]),
             payload: dpcm,
-        }
+        })
     }
 }
 impl Packet for Dpcm {
@@ -842,7 +843,7 @@ impl Packet for Dpcm {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("DPCM", "Whether or not DPCM is encountered in this game. (0 = false, 1 = true)")
+        packet_spec!(DPCM, "DPCM", "Whether or not DPCM is encountered in this game. (0 = false, 1 = true)")
     }
     fn formatted_payload(&self) -> String {
         match self.payload {
@@ -855,17 +856,17 @@ impl Packet for Dpcm {
 
 
 ////////////////////////////////////// GameGenieCode //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct GameGenieCode {
     raw: Vec<u8>,
     payload: String,
 }
 impl GameGenieCode {
-    pub fn new(link: String) -> Self {
-        Self {
+    pub fn new(link: String) -> Box<Self> {
+        Box::new(Self {
             raw: serialize_payload(GAME_GENIE_CODE.to_vec(), link.as_bytes().to_vec()),
             payload: link,
-        }
+        })
     }
 }
 impl Packet for GameGenieCode {
@@ -883,7 +884,7 @@ impl Packet for GameGenieCode {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("GameGenieCode", "(string) 6 or 8 character game genie code.")
+        packet_spec!(GAME_GENIE_CODE, "GameGenieCode", "(string) 6 or 8 character game genie code.")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -892,22 +893,22 @@ impl Packet for GameGenieCode {
 
 
 ////////////////////////////////////// InputChunks //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct InputChunks {
     raw: Vec<u8>,
     port: u8,
     payload: Vec<u8>,
 }
 impl InputChunks {
-    pub fn new(port: u8, chunks: Vec<u8>) -> Self {
+    pub fn new(port: u8, chunks: Vec<u8>) -> Box<Self> {
         let mut raw_payload = chunks.clone();
         raw_payload.insert(0, port);
         
-        Self {
+        Box::new(Self {
             raw: serialize_payload(INPUT_CHUNKS.to_vec(), raw_payload),
             port: port,
             payload: chunks,
-        }
+        })
     }
 }
 impl Packet for InputChunks {
@@ -926,7 +927,7 @@ impl Packet for InputChunks {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("InputChunks", "Port number (1-indexed) + a variable number of input chunks for that port.\nEach chunk can vary in size depending on the controller type in use on the respective frame.\nRefer to transitions to know if any controller types change mid-playback.\nThese packets, and the input chunks therein, are in sequential order!\nTherefore, any following input packets are appended to the inputs contained in this one.")
+        packet_spec!(INPUT_CHUNKS, "InputChunks", "Port number (1-indexed) + a variable number of input chunks for that port.\nEach chunk can vary in size depending on the controller type in use on the respective frame.\nRefer to transitions to know if any controller types change mid-playback.\nThese packets, and the input chunks therein, are in sequential order!\nTherefore, any following input packets are appended to the inputs contained in this one.")
     }
     fn formatted_payload(&self) -> String {
         let mut out = format!("Port #{}, Chunks: ", self.port);
@@ -938,7 +939,7 @@ impl Packet for InputChunks {
 
 
 ////////////////////////////////////// Transition //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Transition {
     raw: Vec<u8>,
     index: u32,
@@ -946,7 +947,7 @@ pub struct Transition {
     payload: Option<Vec<u8>>,
 }
 impl Transition {
-    pub fn new(index: u32, kind: u8, payload: Option<Vec<u8>>) -> Self {
+    pub fn new(index: u32, kind: u8, payload: Option<Vec<u8>>) -> Box<Self> {
         let mut raw_payload = Vec::new();
         to_bytes(index as usize, 4).iter().for_each(|byte| raw_payload.push(*byte));
         raw_payload.push(kind);
@@ -954,12 +955,12 @@ impl Transition {
             payload.clone().unwrap().iter().for_each(|byte| raw_payload.push(*byte));
         }
         
-        Self {
+        Box::new(Self {
             raw: serialize_payload(TRANSITION.to_vec(), raw_payload),
             index: index,
             kind: kind,
             payload: payload,
-        }
+        })
     }
 }
 impl Packet for Transition {
@@ -985,7 +986,7 @@ impl Packet for Transition {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("Transition", "Defines a transition at a specific point in the TAS. First 4 bytes is the frame/index number based on all inputs contained in all FE01 packets. Then 1 byte specifying the transition type. Followed by a variable number of bytes if applicable.")
+        packet_spec!(TRANSITION, "Transition", "Defines a transition at a specific point in the TAS. First 4 bytes is the frame/index number based on all inputs contained in all FE01 packets. Then 1 byte specifying the transition type. Followed by a variable number of bytes if applicable.")
     }
     fn formatted_payload(&self) -> String {
         let mut out = format!("Index: {}, Kind: {}", self.index, transition_lut(self.kind).unwrap_or(format!("Unknown ({:02X})", self.kind).as_str()));
@@ -1000,23 +1001,23 @@ impl Packet for Transition {
 
 
 ////////////////////////////////////// LagFrameChunk //////////////////////////////////////
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct LagFrameChunk {
     raw: Vec<u8>,
     index: u32,
     length: u32,
 }
 impl LagFrameChunk {
-    pub fn new(index: u32, length: u32) -> Self {
+    pub fn new(index: u32, length: u32) -> Box<Self> {
         let mut raw_payload = Vec::new();
         to_bytes(index as usize, 4).iter().for_each(|byte| raw_payload.push(*byte));
         to_bytes(length as usize, 4).iter().for_each(|byte| raw_payload.push(*byte));
         
-        Self {
+        Box::new(Self {
             raw: serialize_payload(LAG_FRAME_CHUNK.to_vec(), raw_payload),
             index: index,
             length: length,
-        }
+        })
     }
 }
 impl Packet for LagFrameChunk {
@@ -1037,7 +1038,7 @@ impl Packet for LagFrameChunk {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!("LagFrameChunk", "Specifies a chunk of lag frames based on the original TAS movie. First 4 bytes is the frame number this chunk starts on. Second 4 bytes is the number of sequential lag frames in this chunk.")
+        packet_spec!(LAG_FRAME_CHUNK, "LagFrameChunk", "Specifies a chunk of lag frames based on the original TAS movie. First 4 bytes is the frame number this chunk starts on. Second 4 bytes is the number of sequential lag frames in this chunk.")
     }
     fn formatted_payload(&self) -> String {
         format!("Index: {}, Length: {}", self.index, self.length)
