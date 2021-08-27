@@ -1,9 +1,10 @@
 
-use crate::lookup::{console_type_lut, console_region_lut, memory_init_lut, transition_lut};
+use crate::lookup::{console_type_lut, console_region_lut, memory_init_lut, transition_lut, controller_type_lut};
 use std::fmt::{Debug, Display};
 use dyn_clone::DynClone;
-use crate::util::{to_bytes, to_i64, to_u32, to_i16, to_usize};
+use crate::util::{to_bytes, to_i64, to_u32, to_i16, to_usize, to_u16};
 use chrono::{Utc, TimeZone};
+use crate::movie::parse_packet;
 
 macro_rules! key_const {
     ($name:ident, $upper:expr, $lower:expr) => {
@@ -21,26 +22,29 @@ key_const!(AUTHOR, 0x00, 0x04);
 key_const!(CATEGORY, 0x00, 0x05);
 key_const!(EMULATOR_NAME, 0x00, 0x06);
 key_const!(EMULATOR_VERSION, 0x00, 0x07);
-key_const!(TAS_LAST_MODIFIED, 0x00, 0x08);
-key_const!(DUMP_LAST_MODIFIED, 0x00, 0x09);
-key_const!(TOTAL_FRAMES, 0x00, 0x0A);
-key_const!(RERECORDS, 0x00, 0x0B);
-key_const!(SOURCE_LINK, 0x00, 0x0C);
-key_const!(BLANK_FRAMES, 0x00, 0x0D);
-key_const!(VERIFIED, 0x00, 0x0E);
-key_const!(MEMORY_INIT, 0x00, 0x0F);
+key_const!(EMULATOR_CORE, 0x00, 0x08);
+key_const!(TAS_LAST_MODIFIED, 0x00, 0x09);
+key_const!(DUMP_LAST_MODIFIED, 0x00, 0x0A);
+key_const!(TOTAL_FRAMES, 0x00, 0x0B);
+key_const!(RERECORDS, 0x00, 0x0C);
+key_const!(SOURCE_LINK, 0x00, 0x0D);
+key_const!(BLANK_FRAMES, 0x00, 0x0E);
+key_const!(VERIFIED, 0x00, 0x0F);
+key_const!(MEMORY_INIT, 0x00, 0x10);
+
+key_const!(PORT_CONTROLLER, 0x00, 0xF0);
 
 key_const!(LATCH_FILTER, 0x01, 0x01);
 key_const!(CLOCK_FILTER, 0x01, 0x02);
 key_const!(OVERREAD, 0x01, 0x03);
-key_const!(DPCM, 0x01, 0x04);
-key_const!(GAME_GENIE_CODE, 0x01, 0x05);
+key_const!(GAME_GENIE_CODE, 0x01, 0x04);
 
 
 
 key_const!(INPUT_CHUNKS, 0xFE, 0x01);
 key_const!(TRANSITION, 0xFE, 0x02);
 key_const!(LAG_FRAME_CHUNK, 0xFE, 0x03);
+key_const!(MOVIE_TRANSITION, 0xFE, 0x04);
 
 
 #[derive(Clone, Debug, Default)]
@@ -114,23 +118,30 @@ impl Packet for Unsupported {
 #[derive(Default, Clone, Debug)]
 pub struct ConsoleType {
     raw: Vec<u8>,
-    payload: u8,
+    kind: u8,
+    custom: Option<String>,
 }
 impl ConsoleType {
-    pub fn new(kind: u8) -> Box<Self> {
+    pub fn new(kind: u8, custom: Option<String>) -> Box<Self> {
         Box::new(Self {
             raw: serialize_payload(CONSOLE_TYPE.to_vec(), vec![kind]),
-            payload: kind,
+            kind: kind,
+            custom: custom,
         })
     }
 }
 impl Packet for ConsoleType {
     fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
         let (raw, payload) = get_raw_packet(data, i);
+        let mut custom = None;
+        if payload[0] == 0xFF {
+            custom = Some(String::from_utf8_lossy(&payload[1..payload.len()]).to_string());
+        }
         
         Box::new(Self {
             raw: raw,
-            payload: payload[0],
+            kind: payload[0],
+            custom: custom,
         })
     }
     
@@ -142,7 +153,11 @@ impl Packet for ConsoleType {
         packet_spec!(CONSOLE_TYPE, "ConsoleType", "The console this TAS is made for.")
     }
     fn formatted_payload(&self) -> String {
-        console_type_lut(self.payload).unwrap_or("Unknown").to_string()
+        if self.custom.is_some() {
+            format!("{}: {}", console_type_lut(self.kind).unwrap_or("Unknown"), self.custom.clone().unwrap())
+        } else {
+            console_type_lut(self.kind).unwrap_or("Unknown").to_string()
+        }
     }
 }
 
@@ -362,6 +377,43 @@ impl Packet for EmulatorVersion {
     
     fn get_packet_spec(&self) -> PacketSpec {
         packet_spec!(EMULATOR_VERSION, "EmulatorVersion", "(string) Version of the emulator.")
+    }
+    fn formatted_payload(&self) -> String {
+        self.payload.clone()
+    }
+}
+
+
+////////////////////////////////////// EmulatorCore //////////////////////////////////////
+#[derive(Default, Clone, Debug)]
+pub struct EmulatorCore {
+    raw: Vec<u8>,
+    payload: String,
+}
+impl EmulatorCore {
+    pub fn new(emulator_core: String) -> Box<Self> {
+        Box::new(Self {
+            raw: serialize_payload(EMULATOR_CORE.to_vec(), emulator_core.as_bytes().to_vec()),
+            payload: emulator_core,
+        })
+    }
+}
+impl Packet for EmulatorCore {
+    fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
+        let (raw, payload) = get_raw_packet(data, i);
+        
+        Box::new(Self {
+            raw: raw,
+            payload: String::from_utf8_lossy(payload.as_slice()).to_string(),
+        })
+    }
+    
+    fn get_raw(&self) -> Vec<u8> {
+        self.raw.clone()
+    }
+    
+    fn get_packet_spec(&self) -> PacketSpec {
+        packet_spec!(EMULATOR_CORE, "EmulatorCore", "(string) Name of emulation core being used. (may not be applicable to all emulators)")
     }
     fn formatted_payload(&self) -> String {
         self.payload.clone()
@@ -626,7 +678,7 @@ impl Packet for Verified {
         match self.payload {
             0 => "No".to_string(),
             1 => "Yes".to_string(),
-            _ => format!("Unknown ({})", self.payload)
+            _ => format!("Unknown ({:02X})", self.payload)
         }
     }
 }
@@ -637,13 +689,15 @@ impl Packet for Verified {
 pub struct MemoryInit {
     raw: Vec<u8>,
     kind: u8,
+    required: u8,
     name: String,
     payload: Option<Vec<u8>>,
 }
 impl MemoryInit {
-    pub fn new(kind: u8, name: String, payload: Option<Vec<u8>>) -> Box<Self> {
+    pub fn new(kind: u8, required: u8, name: String, payload: Option<Vec<u8>>) -> Box<Self> {
         let mut serialize_data = Vec::new();
         serialize_data.push(kind); // kind
+        serialize_data.push(required); // required for verification
         serialize_payload(Vec::new(), name.as_bytes().to_vec()).iter().for_each(|byte| serialize_data.push(*byte)); // v + k + n
         if payload.is_some() {
             payload.clone().unwrap().iter().for_each(|byte| serialize_data.push(*byte)); // p (optional payload)
@@ -652,6 +706,7 @@ impl MemoryInit {
         Box::new(Self {
             raw: serialize_payload(MEMORY_INIT.to_vec(), serialize_data),
             kind: kind,
+            required: required,
             name: name,
             payload: payload,
         })
@@ -661,9 +716,10 @@ impl Packet for MemoryInit {
     fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
         let (raw, payload) = get_raw_packet(data, i);
         let kind = payload[0];
-        let name_exp = payload[1];
-        let name_len = to_usize(&payload[2..(2 + name_exp as usize)]);
-        let name_start = 2 + name_exp as usize;
+        let required = payload[1];
+        let name_exp = payload[2];
+        let name_len = to_usize(&payload[3..(3 + name_exp as usize)]);
+        let name_start = 3 + name_exp as usize;
         let name_end   = name_start + name_len;
         let mut p: Option<Vec<u8>> = None;
         if payload.get(name_end).is_some() {
@@ -673,6 +729,7 @@ impl Packet for MemoryInit {
         Box::new(Self {
             raw: raw,
             kind: kind,
+            required: required,
             name: String::from_utf8_lossy(&payload[name_start..name_end]).to_string(),
             payload: p,
         })
@@ -683,10 +740,18 @@ impl Packet for MemoryInit {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!(MEMORY_INIT, "MemoryInit", "Initialization of named memory space. (1 byte type, v = 1 byte exponent for k, k = length of n, n = name string, p = memory payload)")
+        packet_spec!(MEMORY_INIT, "MemoryInit", "Initialization of named memory space. First byte is the kind of initialization.\nSecond byte is whether or not this is required for verifications (0 = optional, 1 = required). Then the name of the space.\nAnd an optional custom payload. (1 byte type, 1 byte verification requirement, v = 1 byte exponent for k, k = length of n, n = name string, p = memory payload)")
     }
     fn formatted_payload(&self) -> String {
         let mut out = memory_init_lut(self.kind).unwrap_or("Unknown Kind").to_string();
+        out.push_str(", Required: ");
+        
+        let other = format!("Unknown ({:02X})", self.required);
+        out.push_str(match self.required {
+            0 => "No",
+            1 => "Yes",
+            _ => other.as_str()
+        });
         out.push_str(", Space: ");
         out.push_str(self.name.as_str());
         if self.payload.is_some() {
@@ -695,6 +760,52 @@ impl Packet for MemoryInit {
         }
         
         out.trim_end().to_string()
+    }
+}
+
+
+////////////////////////////////////// PortController //////////////////////////////////////
+#[derive(Default, Clone, Debug)]
+pub struct PortController {
+    raw: Vec<u8>,
+    port: u8,
+    controller: u16,
+}
+impl PortController {
+    pub fn new(port: u8, controller: u16) -> Box<Self> {
+        let mut raw_payload = Vec::new();
+        raw_payload.push(port);
+        to_bytes(controller as usize, 2).iter().for_each(|byte| raw_payload.push(*byte));
+        
+        Box::new(Self {
+            raw: serialize_payload(PORT_CONTROLLER.to_vec(), raw_payload),
+            port: port,
+            controller: controller,
+        })
+    }
+}
+impl Packet for PortController {
+    fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
+        let (raw, payload) = get_raw_packet(data, i);
+        let port = payload[0];
+        let controller = to_u16(&payload[1..=2]);
+        
+        Box::new(Self {
+            raw: raw,
+            port: port,
+            controller: controller,
+        })
+    }
+    
+    fn get_raw(&self) -> Vec<u8> {
+        self.raw.clone()
+    }
+    
+    fn get_packet_spec(&self) -> PacketSpec {
+        packet_spec!(PORT_CONTROLLER, "PortController", "Specify which controller is plugged into a specific port number (1-indexed). (1 byte Port Number, 2 byte Controller Type)")
+    }
+    fn formatted_payload(&self) -> String {
+        format!("Port #{}, Controller Type: {}", self.port, controller_type_lut(self.controller).unwrap_or(&format!("Unknown ({:02X})", self.controller)))
     }
 }
 
@@ -808,48 +919,7 @@ impl Packet for Overread {
         match self.payload {
             0 => "HIGH".to_string(),
             1 => "LOW".to_string(),
-            _ => format!("Unknown ({})", self.payload)
-        }
-    }
-}
-
-
-////////////////////////////////////// DPCM //////////////////////////////////////
-#[derive(Default, Clone, Debug)]
-pub struct Dpcm {
-    raw: Vec<u8>,
-    payload: u8,
-}
-impl Dpcm {
-    pub fn new(dpcm: u8) -> Box<Self> {
-        Box::new(Self {
-            raw: serialize_payload(DPCM.to_vec(), vec![dpcm]),
-            payload: dpcm,
-        })
-    }
-}
-impl Packet for Dpcm {
-    fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
-        let (raw, payload) = get_raw_packet(data, i);
-        
-        Box::new(Self {
-            raw: raw,
-            payload: payload[0],
-        })
-    }
-    
-    fn get_raw(&self) -> Vec<u8> {
-        self.raw.clone()
-    }
-    
-    fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!(DPCM, "DPCM", "Whether or not DPCM is encountered in this game. (0 = false, 1 = true)")
-    }
-    fn formatted_payload(&self) -> String {
-        match self.payload {
-            0 => "No".to_string(),
-            1 => "Yes".to_string(),
-            _ => format!("Unknown ({})", self.payload)
+            _ => format!("Unknown ({:02X})", self.payload)
         }
     }
 }
@@ -927,7 +997,7 @@ impl Packet for InputChunks {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!(INPUT_CHUNKS, "InputChunks", "Port number (1-indexed) + a variable number of input chunks for that port.\nEach chunk can vary in size depending on the controller type in use on the respective frame.\nRefer to transitions to know if any controller types change mid-playback.\nThese packets, and the input chunks therein, are in sequential order!\nTherefore, any following input packets are appended to the inputs contained in this one.")
+        packet_spec!(INPUT_CHUNKS, "InputChunks", "Port number (1-indexed) + a variable number of input chunks for that port.\nEach chunk can vary in size depending on the controller type in use on the respective frame.\nRefer to transitions to know if any controller types change mid-playback.\nThese packets, and the input chunks therein, are in sequential order!\nTherefore, any following input packets are appended to the inputs contained in this one.\nInput values are usually in native format (usually active-low), refer to `inputmaps.txt` for details.")
     }
     fn formatted_payload(&self) -> String {
         let mut out = format!("Port #{}, Chunks: ", self.port);
@@ -986,13 +1056,19 @@ impl Packet for Transition {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!(TRANSITION, "Transition", "Defines a transition at a specific point in the TAS. First 4 bytes is the frame/index number based on all inputs contained in all FE01 packets. Then 1 byte specifying the transition type. Followed by a variable number of bytes if applicable.")
+        packet_spec!(TRANSITION, "Transition", "Defines a transition at a specific point in the TAS. First 4 bytes is the frame/index number (0-indexed) based on all inputs contained in all FE01 packets. Then 1 byte specifying the transition type. Followed by a variable number of bytes if applicable.")
     }
     fn formatted_payload(&self) -> String {
         let mut out = format!("Index: {}, Kind: {}", self.index, transition_lut(self.kind).unwrap_or(format!("Unknown ({:02X})", self.kind).as_str()));
-        if self.kind == 0x03 && self.payload.is_some() {
+        if self.kind == 0xFF && self.payload.is_some() {
             let n = self.payload.clone().unwrap();
-            out.push_str(format!(" on Port #{} to type: {:02X}", n[0], n[1]).as_str());
+            if n.len() < 2 + 2 {
+                out.push_str(" from invalid packet: ");
+                for byte in &n { out.push_str(format!("{:02X} ", byte).as_str()); }
+            } else {
+                let internal_packet = parse_packet(&n, &mut 0);
+                out.push_str(format!(" from {}: {}", internal_packet.get_packet_spec().name, internal_packet.formatted_payload()).as_str());
+            }
         }
         
         out
@@ -1038,10 +1114,78 @@ impl Packet for LagFrameChunk {
     }
     
     fn get_packet_spec(&self) -> PacketSpec {
-        packet_spec!(LAG_FRAME_CHUNK, "LagFrameChunk", "Specifies a chunk of lag frames based on the original TAS movie. First 4 bytes is the frame number this chunk starts on. Second 4 bytes is the number of sequential lag frames in this chunk.")
+        packet_spec!(LAG_FRAME_CHUNK, "LagFrameChunk", "Specifies a chunk of lag frames based on the original TAS movie. First 4 bytes is the frame number (0-indexed) this chunk starts on. Second 4 bytes is the number of sequential lag frames in this chunk.")
     }
     fn formatted_payload(&self) -> String {
         format!("Index: {}, Length: {}", self.index, self.length)
+    }
+}
+
+
+////////////////////////////////////// MovieTransition //////////////////////////////////////
+#[derive(Default, Clone, Debug)]
+pub struct MovieTransition {
+    raw: Vec<u8>,
+    index: u32,
+    kind: u8,
+    payload: Option<Vec<u8>>,
+}
+impl MovieTransition {
+    pub fn new(index: u32, kind: u8, payload: Option<Vec<u8>>) -> Box<Self> {
+        let mut raw_payload = Vec::new();
+        to_bytes(index as usize, 4).iter().for_each(|byte| raw_payload.push(*byte));
+        raw_payload.push(kind);
+        if payload.is_some() {
+            payload.clone().unwrap().iter().for_each(|byte| raw_payload.push(*byte));
+        }
+        
+        Box::new(Self {
+            raw: serialize_payload(MOVIE_TRANSITION.to_vec(), raw_payload),
+            index: index,
+            kind: kind,
+            payload: payload,
+        })
+    }
+}
+impl Packet for MovieTransition {
+    fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
+        let (raw, payload) = get_raw_packet(data, i);
+        let index = to_u32(&payload[0..=3]);
+        let kind = payload[4];
+        let mut n = None;
+        if payload.get(5).is_some() {
+            n = Some(payload[5..payload.len()].to_vec());
+        }
+        
+        Box::new(Self {
+            raw: raw,
+            index: index,
+            kind: kind,
+            payload: n,
+        })
+    }
+    
+    fn get_raw(&self) -> Vec<u8> {
+        self.raw.clone()
+    }
+    
+    fn get_packet_spec(&self) -> PacketSpec {
+        packet_spec!(MOVIE_TRANSITION, "MovieTransition", "Defines a transition based on the original TAS movie frames (including lag frames). Using this packet requires FE03 packets. First 4 bytes is the movie frame number (0-indexed). Then 1 byte specifying the transition type. Followed by a variable number of bytes if applicable.")
+    }
+    fn formatted_payload(&self) -> String {
+        let mut out = format!("Index: {}, Kind: {}", self.index, transition_lut(self.kind).unwrap_or(format!("Unknown ({:02X})", self.kind).as_str()));
+        if self.kind == 0xFF && self.payload.is_some() {
+            let n = self.payload.clone().unwrap();
+            if n.len() < 2 + 2 {
+                out.push_str(" from invalid packet: ");
+                for byte in &n { out.push_str(format!("{:02X} ", byte).as_str()); }
+            } else {
+                let internal_packet = parse_packet(&n, &mut 0);
+                out.push_str(format!(" from {}: {}", internal_packet.get_packet_spec().name, internal_packet.formatted_payload()).as_str());
+            }
+        }
+        
+        out
     }
 }
 

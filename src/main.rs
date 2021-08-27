@@ -9,7 +9,7 @@ use regex::Regex;
 
 use definitions::*;
 use movie::TasdMovie;
-use crate::lookup::{key_spec_lut, console_type_lut, console_region_lut, memory_init_lut, transition_lut};
+use crate::lookup::{key_spec_lut, console_type_lut, console_region_lut, memory_init_lut, transition_lut, controller_type_lut};
 use chrono::{NaiveDate, Date, NaiveTime, Utc};
 
 mod util;
@@ -93,13 +93,30 @@ fn edit_menu(tasd: &mut TasdMovie) {
 }
 
 fn add_menu(tasd: &mut TasdMovie) -> bool {
+    let create = create_packet(some_fstr!("Select the packet you'd like to add.\n"), Some(vec![DUMP_LAST_MODIFIED]));
+    
+    if create.1.is_some() {
+        let packet = create.1.unwrap();
+        
+        if packet.get_packet_spec().key != [0x00, 0x00] { // if packet is not unsupported...
+            tasd.packets.push(packet);
+            save_tasd(tasd);
+            println!("New packet added to file!\n");
+        }
+    }
+    
+    create.0
+}
+
+fn create_packet(pretext: Option<String>, exclude: Option<Vec<[u8; 2]>>) -> (bool, Option<Box<dyn Packet>>){
+    let exclude = exclude.unwrap_or(vec![]);
     let mut options = Vec::<String>::new();
     options.push(fstr!("Return to main menu"));
     let mut specs = Vec::new();
     for upper in 0..=255 {
         for lower in 0..=255 {
             let key = [upper, lower];
-            if key != DUMP_LAST_MODIFIED {
+            if !exclude.contains(&key) {
                 let spec = key_spec_lut(key);
                 if spec.is_some() {
                     let spec = spec.unwrap();
@@ -109,11 +126,11 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
             }
         }
     }
-    let selection = cli_selection(options.iter(), some_fstr!("Select the packet you'd like to add.\n"), some_fstr!("Packet Type[0]: "));
-    if selection == 0 { return true; }
+    let selection = cli_selection(options.iter(), pretext, some_fstr!("Packet Type[0]: "));
+    if selection == 0 { return (true, None); }
     
-    let spec = &specs[selection - 1];
     let packet: Box<dyn Packet>;
+    let spec = &specs[selection - 1];
     match spec.0 {
         CONSOLE_TYPE => {
             let mut options = Vec::new();
@@ -124,8 +141,16 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
                 if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
             }
             let selection = cli_selection(options.iter(), None, some_fstr!("Console Type[0]: "));
-            if selection == 0 { return false; }
-            packet = ConsoleType::new(kinds[selection - 1]);
+            if selection == 0 { return (false, None); }
+            let kind = kinds[selection - 1];
+            
+            if kind == 0xFF {
+                let text = cli_read(some_fstr!("Custom type: "));
+                if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
+                packet = ConsoleType::new(kind, Some(text.unwrap()));
+            } else {
+                packet = ConsoleType::new(kind, None);
+            }
         },
         CONSOLE_REGION => {
             let mut options = Vec::new();
@@ -136,37 +161,42 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
                 if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
             }
             let selection = cli_selection(options.iter(), None, some_fstr!("Console Region[0]: "));
-            if selection == 0 { return false; }
+            if selection == 0 { return (false, None); }
             packet = ConsoleRegion::new(kinds[selection - 1]);
         },
         GAME_TITLE => {
             let text = cli_read(some_fstr!("Game title: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = GameTitle::new(text.unwrap());
         },
         AUTHOR => {
             let text = cli_read(some_fstr!("Author: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = Author::new(text.unwrap());
         },
         CATEGORY => {
             let text = cli_read(some_fstr!("Category: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = Category::new(text.unwrap());
         },
         EMULATOR_NAME => {
             let text = cli_read(some_fstr!("Emulator name: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = EmulatorName::new(text.unwrap());
         },
         EMULATOR_VERSION => {
             let text = cli_read(some_fstr!("Emulator version: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = EmulatorVersion::new(text.unwrap());
+        },
+        EMULATOR_CORE => {
+            let text = cli_read(some_fstr!("Emulator core: "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
+            packet = EmulatorCore::new(text.unwrap());
         },
         TAS_LAST_MODIFIED => {
             let text = cli_read(some_fstr!("TAS last modified (epoch seconds, YYYY-MM-DD, or YYYY-MM-DD HH:MM:SS): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let text = text.unwrap();
             
             let epoch;
@@ -180,42 +210,42 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
                 epoch = date.and_time(NaiveTime::from_hms(0,0,0)).unwrap().timestamp();
             } else {
                 let parse_attempt = text.parse();
-                if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+                if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
                 epoch = parse_attempt.unwrap();
             }
             packet = TASLastModified::new(epoch);
         },
         TOTAL_FRAMES => {
             let text = cli_read(some_fstr!("Total frames: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = TotalFrames::new(parse_attempt.unwrap());
         },
         RERECORDS => {
             let text = cli_read(some_fstr!("Rerecord count: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = Rerecords::new(parse_attempt.unwrap());
         },
         SOURCE_LINK => {
             let text = cli_read(some_fstr!("Source link/url: "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = SourceLink::new(text.unwrap());
         },
         BLANK_FRAMES => {
             let text = cli_read(some_fstr!("Blank frames (-32768 to +32767): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = BlankFrames::new(parse_attempt.unwrap());
         },
         VERIFIED => {
             let text = cli_read(some_fstr!("Has been verified (true or false): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse::<bool>();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = Verified::new(parse_attempt.unwrap() as u8);
         },
         MEMORY_INIT => {
@@ -227,56 +257,74 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
                 if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
             }
             let selection = cli_selection(options.iter(), None, some_fstr!("Initialization type[0]: "));
-            if selection == 0 { return false; }
+            if selection == 0 { return (false, None); }
             let kind = kinds[selection - 1];
             
+            let required = cli_read(some_fstr!("Required for verification (true or false): "));
+            if required.is_err() { println!("Err: {:?}\n", required.err().unwrap()); return (false, None); }
+            let required = required.unwrap().parse::<bool>();
+            if required.is_err() { println!("Err: {:?}\n", required.err().unwrap()); return (false, None); }
+            
             let name = cli_read(some_fstr!("Name of memory space: "));
-            if name.is_err() { println!("Err: {:?}\n", name.err().unwrap()); return false; }
+            if name.is_err() { println!("Err: {:?}\n", name.err().unwrap()); return (false, None); }
             let mut payload = None;
             if kind == 0x02 {
                 let path = cli_read(some_fstr!("Path to file containing memory: "));
-                if path.is_err() { println!("Err: {:?}\n", path.err().unwrap()); return false; }
+                if path.is_err() { println!("Err: {:?}\n", path.err().unwrap()); return (false, None); }
                 let path = path.unwrap();
                 let path = Path::new(&path);
-                if !path.exists() || !path.is_file() { println!("Path either doesn't exist or isn't a file.\n"); return false; }
+                if !path.exists() || !path.is_file() { println!("Path either doesn't exist or isn't a file.\n"); return (false, None); }
                 let data_result = std::fs::read(path);
-                if data_result.is_err() { println!("Err: {:?}\n", data_result.err().unwrap()); return false; }
+                if data_result.is_err() { println!("Err: {:?}\n", data_result.err().unwrap()); return (false, None); }
                 payload = Some(data_result.unwrap());
             }
-            packet = MemoryInit::new(kind, name.unwrap(), payload);
+            packet = MemoryInit::new(kind, required.unwrap() as u8, name.unwrap(), payload);
         },
+        PORT_CONTROLLER => {
+            let text = cli_read(some_fstr!("Port number (1-indexed): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
+            let parse_attempt = text.unwrap().parse();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
+            let port = parse_attempt.unwrap();
+            
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push(fstr!("Return to add menu"));
+            for i in 1..=0xFFFF {
+                let s = controller_type_lut(i);
+                if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
+            }
+            let selection = cli_selection(options.iter(), None, some_fstr!("Initialization type[0]: "));
+            if selection == 0 { return (false, None); }
+            let kind = kinds[selection - 1];
+            
+            packet = PortController::new(port, kind);
+        }
         
         LATCH_FILTER => {
             let text = cli_read(some_fstr!("Latch filter (specify positive integer; which will be multiplied by 0.1ms): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = LatchFilter::new(parse_attempt.unwrap());
         },
         CLOCK_FILTER => {
             let text = cli_read(some_fstr!("Clock filter (specify positive integer; which will be multiplied by 0.25us): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = ClockFilter::new(parse_attempt.unwrap());
         },
         OVERREAD => {
             let text = cli_read(some_fstr!("Overread (0 for a HIGH signal, or 1 for LOW): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             let parse_attempt = text.unwrap().parse();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             packet = Overread::new(parse_attempt.unwrap());
-        },
-        DPCM => {
-            let text = cli_read(some_fstr!("Game is affected by DPCM (true or false): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
-            let parse_attempt = text.unwrap().parse::<bool>();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
-            packet = Dpcm::new(parse_attempt.unwrap() as u8);
         },
         GAME_GENIE_CODE => {
             let text = cli_read(some_fstr!("Game genie code (6 or 8 characters): "));
-            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return false; }
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             packet = GameGenieCode::new(text.unwrap());
         },
         
@@ -284,9 +332,9 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
         
         TRANSITION => {
             let index = cli_read(some_fstr!("Frame/Index number: "));
-            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return false; }
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return (false, None); }
             let parse_attempt = index.unwrap().parse::<u32>();
-            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return false; }
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             
             let mut options = Vec::new();
             let mut kinds = Vec::new();
@@ -296,38 +344,58 @@ fn add_menu(tasd: &mut TasdMovie) -> bool {
                 if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
             }
             let selection = cli_selection(options.iter(), None, some_fstr!("Transition type[0]: "));
-            if selection == 0 { return false; }
+            if selection == 0 { return (false, None); }
             let kind = kinds[selection - 1];
             
             let mut payload = None;
-            if kind == 0x03 {
-                unimplemented!();
-                //TODO: Controller Swap transition must wait for decision about how to identify controllers.
+            if kind == 0xFF {
+                let create = create_packet(some_fstr!("Select a packet for this transition.\n"), Some(vec![DUMP_LAST_MODIFIED, INPUT_CHUNKS, TRANSITION, LAG_FRAME_CHUNK, MOVIE_TRANSITION]));
+                if create.0 || create.1.is_none() { return (true, None); }
+                payload = Some(create.1.unwrap().get_raw());
             }
             packet = Transition::new(parse_attempt.unwrap(), kind, payload);
         },
         LAG_FRAME_CHUNK => {
             let index = cli_read(some_fstr!("Frame/Index number: "));
-            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return false; }
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return (false, None); }
             let index = index.unwrap().parse::<u32>();
-            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return false; }
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return (false, None); }
             
             let length = cli_read(some_fstr!("Length of chunk: "));
-            if length.is_err() { println!("Err: {:?}\n", length.err().unwrap()); return false; }
+            if length.is_err() { println!("Err: {:?}\n", length.err().unwrap()); return (false, None); }
             let length = length.unwrap().parse::<u32>();
-            if length.is_err() { println!("Err: {:?}\n", length.err().unwrap()); return false; }
+            if length.is_err() { println!("Err: {:?}\n", length.err().unwrap()); return (false, None); }
             packet = LagFrameChunk::new(index.unwrap(), length.unwrap());
         },
-        _ => { println!("Sorry, creating new packets of this type is currently unsupported.\n"); return false; }
+        MOVIE_TRANSITION => {
+            let index = cli_read(some_fstr!("Frame/Index number: "));
+            if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return (false, None); }
+            let parse_attempt = index.unwrap().parse::<u32>();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
+            
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push(fstr!("Return to add menu"));
+            for i in 1..=255 {
+                let s = transition_lut(i);
+                if s.is_some() { options.push(fstr!(s.unwrap())); kinds.push(i); }
+            }
+            let selection = cli_selection(options.iter(), None, some_fstr!("Transition type[0]: "));
+            if selection == 0 { return (false, None); }
+            let kind = kinds[selection - 1];
+            
+            let mut payload = None;
+            if kind == 0xFF {
+                let create = create_packet(some_fstr!("Select a packet for this transition.\n"), Some(vec![DUMP_LAST_MODIFIED, INPUT_CHUNKS, TRANSITION, LAG_FRAME_CHUNK, MOVIE_TRANSITION]));
+                if create.0 || create.1.is_none() { return (true, None); }
+                payload = Some(create.1.unwrap().get_raw());
+            }
+            packet = MovieTransition::new(parse_attempt.unwrap(), kind, payload);
+        },
+        _ => { println!("Sorry, creating new packets of this type is currently unsupported.\n"); return (false, None); },
     }
     
-    if packet.get_packet_spec().key != [0x00, 0x00] { // if packet is not unsupported...
-        tasd.packets.push(packet);
-        save_tasd(tasd);
-        println!("New packet added to file!\n");
-    }
-    
-    false
+    (false, Some(packet))
 }
 
 fn remove_menu(tasd: &mut TasdMovie) -> bool {

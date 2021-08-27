@@ -25,36 +25,8 @@ impl TasdMovie {
         let mut i = 7;
         loop {
             if i >= data.len() { break; }
-            let key = [data[i], data[i + 1]];
             
-            let packet = match key {
-                CONSOLE_TYPE => ConsoleType::parse(data, &mut i),
-                CONSOLE_REGION => ConsoleRegion::parse(data, &mut i),
-                GAME_TITLE => GameTitle::parse(data, &mut i),
-                AUTHOR => Author::parse(data, &mut i),
-                CATEGORY => Category::parse(data, &mut i),
-                EMULATOR_NAME => EmulatorName::parse(data, &mut i),
-                EMULATOR_VERSION => EmulatorVersion::parse(data, &mut i),
-                TAS_LAST_MODIFIED => TASLastModified::parse(data, &mut i),
-                DUMP_LAST_MODIFIED => DumpLastModified::parse(data, &mut i),
-                TOTAL_FRAMES => TotalFrames::parse(data, &mut i),
-                RERECORDS => Rerecords::parse(data, &mut i),
-                SOURCE_LINK => SourceLink::parse(data, &mut i),
-                BLANK_FRAMES => BlankFrames::parse(data, &mut i),
-                VERIFIED => Verified::parse(data, &mut i),
-                MEMORY_INIT => MemoryInit::parse(data, &mut i),
-                LATCH_FILTER => LatchFilter::parse(data, &mut i),
-                CLOCK_FILTER => ClockFilter::parse(data, &mut i),
-                OVERREAD => Overread::parse(data, &mut i),
-                DPCM => Dpcm::parse(data, &mut i),
-                GAME_GENIE_CODE => GameGenieCode::parse(data, &mut i),
-                INPUT_CHUNKS => InputChunks::parse(data, &mut i),
-                TRANSITION => Transition::parse(data, &mut i),
-                LAG_FRAME_CHUNK => LagFrameChunk::parse(data, &mut i),
-                _ => Unsupported::parse(data, &mut i),
-            };
-            
-            tasd.packets.push(packet);
+            tasd.packets.push(parse_packet(data, &mut i));
         }
         
         Ok(tasd)
@@ -72,5 +44,38 @@ impl TasdMovie {
     
     pub fn save(&self) {
         std::fs::write(self.source_file.clone(), self.dump()).unwrap();
+    }
+}
+
+pub fn parse_packet(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
+    let key = [data[*i], data[*i + 1]];
+            
+    match key {
+        CONSOLE_TYPE => ConsoleType::parse(data, i),
+        CONSOLE_REGION => ConsoleRegion::parse(data, i),
+        GAME_TITLE => GameTitle::parse(data, i),
+        AUTHOR => Author::parse(data, i),
+        CATEGORY => Category::parse(data, i),
+        EMULATOR_NAME => EmulatorName::parse(data, i),
+        EMULATOR_VERSION => EmulatorVersion::parse(data, i),
+        EMULATOR_CORE => EmulatorCore::parse(data, i),
+        TAS_LAST_MODIFIED => TASLastModified::parse(data, i),
+        DUMP_LAST_MODIFIED => DumpLastModified::parse(data, i),
+        TOTAL_FRAMES => TotalFrames::parse(data, i),
+        RERECORDS => Rerecords::parse(data, i),
+        SOURCE_LINK => SourceLink::parse(data, i),
+        BLANK_FRAMES => BlankFrames::parse(data, i),
+        VERIFIED => Verified::parse(data, i),
+        MEMORY_INIT => MemoryInit::parse(data, i),
+        PORT_CONTROLLER => PortController::parse(data, i),
+        LATCH_FILTER => LatchFilter::parse(data, i),
+        CLOCK_FILTER => ClockFilter::parse(data, i),
+        OVERREAD => Overread::parse(data, i),
+        GAME_GENIE_CODE => GameGenieCode::parse(data, i),
+        INPUT_CHUNKS => InputChunks::parse(data, i),
+        TRANSITION => Transition::parse(data, i),
+        LAG_FRAME_CHUNK => LagFrameChunk::parse(data, i),
+        MOVIE_TRANSITION => MovieTransition::parse(data, i),
+        _ => Unsupported::parse(data, i),
     }
 }
