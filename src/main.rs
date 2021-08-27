@@ -52,6 +52,7 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
             fstr!("Add a new packet"),
             fstr!("Remove a packet"),
             fstr!("Display all packets"),
+            fstr!("Display all, except input chunks"),
             fstr!("Save prettified packets to file")
         ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
     );
@@ -70,10 +71,14 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
             false
         },
         4 => {
-            display_packets(tasd);
+            display_packets(tasd, false);
             false
         },
         5 => {
+            display_packets(tasd, true);
+            false
+        },
+        6 => {
             save_pretty(tasd);
             false
         },
@@ -343,9 +348,10 @@ fn remove_menu(tasd: &mut TasdMovie) -> bool {
     true
 }
 
-fn display_packets(tasd: &TasdMovie) {
+fn display_packets(tasd: &TasdMovie, exclude_inputs: bool) {
     let pretty = prettify_packets(tasd);
     for packet in pretty {
+        if exclude_inputs && packet.contains("InputChunks:") { continue; }
         println!("{}", packet);
     }
     println!("");
