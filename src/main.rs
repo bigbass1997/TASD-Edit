@@ -52,6 +52,7 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
             fstr!("Add a new packet"),
             fstr!("Remove a packet"),
             fstr!("Display all packets"),
+            fstr!("Save prettified packets to file")
         ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
     );
     
@@ -70,6 +71,10 @@ fn main_menu(tasd: &mut TasdMovie) -> bool {
         },
         4 => {
             display_packets(tasd);
+            false
+        },
+        5 => {
+            save_pretty(tasd);
             false
         },
         
@@ -339,12 +344,40 @@ fn remove_menu(tasd: &mut TasdMovie) -> bool {
 }
 
 fn display_packets(tasd: &TasdMovie) {
-    println!("Version: {:#06X}, Key Width: {}", tasd.version, tasd.key_width);
+    let pretty = prettify_packets(tasd);
+    for packet in pretty {
+        println!("{}", packet);
+    }
+    println!("");
+}
+
+fn save_pretty(tasd: &TasdMovie) {
+    let pretty = prettify_packets(tasd);
+    let mut path = tasd.source_file.clone();
+    path.set_extension("tasd.pretty.txt");
+    let mut out = Vec::new();
+    for line in pretty {
+        format!("{}\n", line).as_bytes().iter().for_each(|byte| out.push(*byte));
+    }
+    
+    let result = std::fs::write(path.clone(), out);
+    if result.is_err() {
+        println!("Err: {:?}\n", result.err());
+    } else {
+        println!("File saved to: {}\n", path.canonicalize().unwrap().to_string_lossy())
+    }
+}
+
+fn prettify_packets(tasd: &TasdMovie) -> Vec<String> {
+    let mut out = Vec::new();
+    
+    out.push(format!("Version: {:#06X}, Key Width: {}", tasd.version, tasd.key_width));
     let padding = ((tasd.packets.len() as f32).log10() as usize) + 1;
     for (i, packet) in tasd.packets.iter().enumerate() {
-        println!("[{:padding$.0}]: {}: {}", i + 1, packet.get_packet_spec().name, packet.formatted_payload(), padding=padding);
+        out.push(format!("[{:padding$.0}]: {}: {}", i + 1, packet.get_packet_spec().name, packet.formatted_payload(), padding=padding));
     }
-    println!();
+    
+    out
 }
 
 fn save_tasd(tasd: &mut TasdMovie) {
