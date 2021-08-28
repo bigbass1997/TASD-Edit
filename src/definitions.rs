@@ -5,6 +5,7 @@ use dyn_clone::DynClone;
 use crate::util::{to_bytes, to_i64, to_u32, to_i16, to_usize, to_u16};
 use chrono::{Utc, TimeZone};
 use crate::movie::parse_packet;
+use std::any::Any;
 
 macro_rules! key_const {
     ($name:ident, $upper:expr, $lower:expr) => {
@@ -77,6 +78,8 @@ pub trait Packet: DynClone {
     
     fn get_packet_spec(&self) -> PacketSpec;
     fn formatted_payload(&self) -> String;
+    
+    fn as_any(&self) -> &dyn Any;
 }
 impl Debug for dyn Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -90,7 +93,7 @@ dyn_clone::clone_trait_object!(Packet);
 ////////////////////////////////////// Unsupported //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Unsupported {
-    raw: Vec<u8>,
+    pub raw: Vec<u8>,
 }
 impl Packet for Unsupported {
     fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
@@ -112,6 +115,10 @@ impl Packet for Unsupported {
         }
         
         out.trim_end().to_string()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -166,14 +173,18 @@ impl Packet for ConsoleType {
             console_type_lut(self.kind).unwrap_or("Unknown").to_string()
         }
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// ConsoleRegion //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct ConsoleRegion {
-    raw: Vec<u8>,
-    payload: u8,
+    pub raw: Vec<u8>,
+    pub payload: u8,
 }
 impl ConsoleRegion {
     pub fn new(kind: u8) -> Box<Self> {
@@ -203,14 +214,18 @@ impl Packet for ConsoleRegion {
     fn formatted_payload(&self) -> String {
         console_region_lut(self.payload).unwrap_or("Unknown").to_string()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// GameTitle //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct GameTitle {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl GameTitle {
     pub fn new(title: String) -> Box<Self> {
@@ -240,14 +255,18 @@ impl Packet for GameTitle {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// Author //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Author {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl Author {
     pub fn new(author: String) -> Box<Self> {
@@ -277,14 +296,18 @@ impl Packet for Author {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// Category //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Category {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl Category {
     pub fn new(category: String) -> Box<Self> {
@@ -314,14 +337,18 @@ impl Packet for Category {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// EmulatorName //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct EmulatorName {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl EmulatorName {
     pub fn new(emulator_name: String) -> Box<Self> {
@@ -351,14 +378,18 @@ impl Packet for EmulatorName {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// EmulatorVersion //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct EmulatorVersion {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl EmulatorVersion {
     pub fn new(emulator_version: String) -> Box<Self> {
@@ -388,14 +419,18 @@ impl Packet for EmulatorVersion {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// EmulatorCore //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct EmulatorCore {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl EmulatorCore {
     pub fn new(emulator_core: String) -> Box<Self> {
@@ -425,14 +460,18 @@ impl Packet for EmulatorCore {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// TASLastModified //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct TASLastModified {
-    raw: Vec<u8>,
-    payload: i64,
+    pub raw: Vec<u8>,
+    pub payload: i64,
 }
 impl TASLastModified {
     pub fn new(epoch: i64) -> Box<Self> {
@@ -462,14 +501,18 @@ impl Packet for TASLastModified {
     fn formatted_payload(&self) -> String {
         Utc.timestamp(self.payload, 0).to_string()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// DumpLastModified //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct DumpLastModified {
-    raw: Vec<u8>,
-    payload: i64,
+    pub raw: Vec<u8>,
+    pub payload: i64,
 }
 impl DumpLastModified {
     pub fn new(epoch: i64) -> Box<Self> {
@@ -499,14 +542,18 @@ impl Packet for DumpLastModified {
     fn formatted_payload(&self) -> String {
         Utc.timestamp(self.payload, 0).to_string()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// TotalFrames //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct TotalFrames {
-    raw: Vec<u8>,
-    payload: u32,
+    pub raw: Vec<u8>,
+    pub payload: u32,
 }
 impl TotalFrames {
     pub fn new(frames: u32) -> Box<Self> {
@@ -536,14 +583,18 @@ impl Packet for TotalFrames {
     fn formatted_payload(&self) -> String {
         format!("{}", self.payload)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// Rerecords //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Rerecords {
-    raw: Vec<u8>,
-    payload: u32,
+    pub raw: Vec<u8>,
+    pub payload: u32,
 }
 impl Rerecords {
     pub fn new(rerecords: u32) -> Box<Self> {
@@ -573,14 +624,18 @@ impl Packet for Rerecords {
     fn formatted_payload(&self) -> String {
         format!("{}", self.payload)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// SourceLink //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct SourceLink {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl SourceLink {
     pub fn new(link: String) -> Box<Self> {
@@ -610,14 +665,18 @@ impl Packet for SourceLink {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// BlankFrames //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct BlankFrames {
-    raw: Vec<u8>,
-    payload: i16,
+    pub raw: Vec<u8>,
+    pub payload: i16,
 }
 impl BlankFrames {
     pub fn new(frames: i16) -> Box<Self> {
@@ -647,14 +706,18 @@ impl Packet for BlankFrames {
     fn formatted_payload(&self) -> String {
         format!("{}", self.payload)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// Verified //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Verified {
-    raw: Vec<u8>,
-    payload: u8,
+    pub raw: Vec<u8>,
+    pub payload: u8,
 }
 impl Verified {
     pub fn new(verified: u8) -> Box<Self> {
@@ -688,17 +751,21 @@ impl Packet for Verified {
             _ => format!("Unknown ({:02X})", self.payload)
         }
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// MemoryInit //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct MemoryInit {
-    raw: Vec<u8>,
-    kind: u8,
-    required: u8,
-    name: String,
-    payload: Option<Vec<u8>>,
+    pub raw: Vec<u8>,
+    pub kind: u8,
+    pub required: u8,
+    pub name: String,
+    pub payload: Option<Vec<u8>>,
 }
 impl MemoryInit {
     pub fn new(kind: u8, required: u8, name: String, payload: Option<Vec<u8>>) -> Box<Self> {
@@ -768,15 +835,19 @@ impl Packet for MemoryInit {
         
         out.trim_end().to_string()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// PortController //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct PortController {
-    raw: Vec<u8>,
-    port: u8,
-    controller: u16,
+    pub raw: Vec<u8>,
+    pub port: u8,
+    pub controller: u16,
 }
 impl PortController {
     pub fn new(port: u8, controller: u16) -> Box<Self> {
@@ -814,14 +885,18 @@ impl Packet for PortController {
     fn formatted_payload(&self) -> String {
         format!("Port #{}, Controller Type: {}", self.port, controller_type_lut(self.controller).unwrap_or(&format!("Unknown ({:02X})", self.controller)))
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// LatchFilter //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct LatchFilter {
-    raw: Vec<u8>,
-    payload: u8,
+    pub raw: Vec<u8>,
+    pub payload: u8,
 }
 impl LatchFilter {
     pub fn new(filter: u8) -> Box<Self> {
@@ -851,14 +926,18 @@ impl Packet for LatchFilter {
     fn formatted_payload(&self) -> String {
         format!("{:.1}ms", self.payload as f32 * 0.1f32).to_string()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// ClockFilter //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct ClockFilter {
-    raw: Vec<u8>,
-    payload: u8,
+    pub raw: Vec<u8>,
+    pub payload: u8,
 }
 impl ClockFilter {
     pub fn new(filter: u8) -> Box<Self> {
@@ -888,14 +967,18 @@ impl Packet for ClockFilter {
     fn formatted_payload(&self) -> String {
         format!("{:.2}us", self.payload as f32 * 0.25f32).to_string()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// Overread //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Overread {
-    raw: Vec<u8>,
-    payload: u8,
+    pub raw: Vec<u8>,
+    pub payload: u8,
 }
 impl Overread {
     pub fn new(overread: u8) -> Box<Self> {
@@ -929,14 +1012,18 @@ impl Packet for Overread {
             _ => format!("Unknown ({:02X})", self.payload)
         }
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// GameGenieCode //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct GameGenieCode {
-    raw: Vec<u8>,
-    payload: String,
+    pub raw: Vec<u8>,
+    pub payload: String,
 }
 impl GameGenieCode {
     pub fn new(link: String) -> Box<Self> {
@@ -966,15 +1053,19 @@ impl Packet for GameGenieCode {
     fn formatted_payload(&self) -> String {
         self.payload.clone()
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// InputChunks //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct InputChunks {
-    raw: Vec<u8>,
-    port: u8,
-    payload: Vec<u8>,
+    pub raw: Vec<u8>,
+    pub port: u8,
+    pub payload: Vec<u8>,
 }
 impl InputChunks {
     pub fn new(port: u8, chunks: Vec<u8>) -> Box<Self> {
@@ -1012,21 +1103,27 @@ impl Packet for InputChunks {
         
         out
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// InputMoment //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct InputMoment {
-    raw: Vec<u8>,
-    port: u8,
-    index: u32,
-    payload: Vec<u8>,
+    pub raw: Vec<u8>,
+    pub port: u8,
+    pub index: u32,
+    pub payload: Vec<u8>,
 }
 impl InputMoment {
     pub fn new(port: u8, index: u32, input: Vec<u8>) -> Box<Self> {
-        let mut raw_payload = input.clone();
-        raw_payload.insert(0, port);
+        let mut raw_payload = Vec::new();
+        raw_payload.push(port);
+        to_bytes(index as usize, 4).iter().for_each(|byte| raw_payload.push(*byte));
+        input.iter().for_each(|byte| raw_payload.push(*byte));
         
         Box::new(Self {
             raw: serialize_payload(INPUT_MOMENT.to_vec(), raw_payload),
@@ -1061,16 +1158,20 @@ impl Packet for InputMoment {
         
         out
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// Transition //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct Transition {
-    raw: Vec<u8>,
-    index: u32,
-    kind: u8,
-    payload: Option<Vec<u8>>,
+    pub raw: Vec<u8>,
+    pub index: u32,
+    pub kind: u8,
+    pub payload: Option<Vec<u8>>,
 }
 impl Transition {
     pub fn new(index: u32, kind: u8, payload: Option<Vec<u8>>) -> Box<Self> {
@@ -1129,15 +1230,19 @@ impl Packet for Transition {
         
         out
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// LagFrameChunk //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct LagFrameChunk {
-    raw: Vec<u8>,
-    index: u32,
-    length: u32,
+    pub raw: Vec<u8>,
+    pub index: u32,
+    pub length: u32,
 }
 impl LagFrameChunk {
     pub fn new(index: u32, length: u32) -> Box<Self> {
@@ -1175,16 +1280,20 @@ impl Packet for LagFrameChunk {
     fn formatted_payload(&self) -> String {
         format!("Index: {}, Length: {}", self.index, self.length)
     }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 
 ////////////////////////////////////// MovieTransition //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct MovieTransition {
-    raw: Vec<u8>,
-    index: u32,
-    kind: u8,
-    payload: Option<Vec<u8>>,
+    pub raw: Vec<u8>,
+    pub index: u32,
+    pub kind: u8,
+    pub payload: Option<Vec<u8>>,
 }
 impl MovieTransition {
     pub fn new(index: u32, kind: u8, payload: Option<Vec<u8>>) -> Box<Self> {
@@ -1242,6 +1351,10 @@ impl Packet for MovieTransition {
         }
         
         out
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
