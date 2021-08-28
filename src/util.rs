@@ -12,6 +12,7 @@ pub fn to_u32(data: &[u8]) -> u32 {
     to_usize(data) as u32
 }
 
+#[allow(unused)]
 pub fn to_u64(data: &[u8]) -> u64 {
     to_usize(data) as u64
 }

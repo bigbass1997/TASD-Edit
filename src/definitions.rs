@@ -97,7 +97,7 @@ pub struct Unsupported {
 }
 impl Packet for Unsupported {
     fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
-        let (raw, payload) = get_raw_packet(data, i);
+        let (raw, _) = get_raw_packet(data, i);
         Box::new(Self { raw })
     }
     

@@ -901,9 +901,9 @@ fn check_tasd_exists_create(path_ref: &mut PathBuf) {
             println!("Error: {:?}", result.err());
             exit(true, 1);
         }
-        println!("Created new file: {}", path.to_string_lossy());
+        println!("Created new file: {}\n", path.to_string_lossy());
     } else {
-        println!("Existing file found.");
+        println!("Existing file found.\n");
     }
     flush();
     *path_ref = path;
