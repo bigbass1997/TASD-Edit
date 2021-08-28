@@ -59,34 +59,34 @@ fn main_menu(tasd_option: &mut Option<TasdMovie>) -> bool {
         let tasd = tasd_option.as_mut().unwrap();
         let selection = cli_selection([
                 fstr!("Exit/Quit"),
-                fstr!("Create/load a TASD file"),
-                fstr!("Import a legacy file"),
-                fstr!("Export to legacy file"),
                 fstr!("Add a new packet"),
                 fstr!("Remove a packet"),
                 fstr!("Display all packets"),
                 fstr!("Display all, except input chunks"),
-                fstr!("Save prettified packets to file")
+                fstr!("Save prettified packets to file"),
+                fstr!("Create/load a TASD file"),
+                fstr!("Import and append a legacy file"),
+                fstr!("Export to legacy file"),
             ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
         );
         
         let mut ret = false;
         match selection {
           //0 => exits program
-            1 => { match load_tasd() {
+            1 => { while !add_menu(tasd) {} },
+            2 => { while !remove_menu(tasd) {} },
+            3 => { display_packets(tasd, false); },
+            4 => { display_packets(tasd, true); },
+            5 => { save_pretty(tasd); },
+            6 => { match load_tasd() {
                 Err(x) => println!("Err: {}\n", x),
                 Ok(x) => *tasd = x,
             }},
-            2 => { match import_legacy(tasd_option) {
+            7 => { match import_legacy(tasd_option) {
                 Err(x) => println!("Err: {}\n", x),
                 Ok(_) => ()
             }},
-            3 => { export_legacy(tasd) },
-            4 => { while !add_menu(tasd) {} },
-            5 => { while !remove_menu(tasd) {} },
-            6 => { display_packets(tasd, false); },
-            7 => { display_packets(tasd, true); },
-            8 => { save_pretty(tasd); },
+            8 => { export_legacy(tasd) },
             
             _ => ret = true,
         };
