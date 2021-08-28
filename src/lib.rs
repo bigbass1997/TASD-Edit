@@ -1,6 +1,5 @@
-#![allow(unused)]
 
-mod definitions;
-mod movie;
-mod lookup;
-mod util;
+pub mod definitions;
+pub mod movie;
+pub mod lookup;
+pub mod util;
