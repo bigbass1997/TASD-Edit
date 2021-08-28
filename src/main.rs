@@ -16,7 +16,8 @@ use chrono::{NaiveDate, Date, NaiveTime, Utc};
 use definitions::*;
 use movie::TasdMovie;
 use lookup::{key_spec_lut, console_type_lut, console_region_lut, memory_init_lut, transition_lut, controller_type_lut};
-use util::to_bytes;
+use util::{to_bytes, to_u16};
+use std::cmp::max;
 
 
 macro_rules! fstr {
@@ -73,14 +74,14 @@ fn main_menu(tasd_option: &mut Option<TasdMovie>) -> bool {
         match selection {
           //0 => exits program
             1 => { match load_tasd() {
-                Err(x) => println!("Err: {}", x),
+                Err(x) => println!("Err: {}\n", x),
                 Ok(x) => *tasd = x,
             }},
             2 => { match import_legacy(tasd_option) {
-                Err(x) => println!("Err: {}", x),
+                Err(x) => println!("Err: {}\n", x),
                 Ok(_) => ()
             }},
-            3 => {  },
+            3 => { export_legacy(tasd) },
             4 => { while !add_menu(tasd) {} },
             5 => { while !remove_menu(tasd) {} },
             6 => { display_packets(tasd, false); },
@@ -103,12 +104,12 @@ fn main_menu(tasd_option: &mut Option<TasdMovie>) -> bool {
         match selection {
           //0 => exits program
             1 => { match load_tasd() {
-                Err(x) => println!("Err: {}", x),
+                Err(x) => println!("Err: {}\n", x),
                 Ok(x) => *tasd_option = Some(x),
             }},
             2 => {
                 match import_legacy(tasd_option) {
-                    Err(x) => println!("Err: {}", x),
+                    Err(x) => println!("Err: {}\n", x),
                     Ok(_) => ()
                 }
             },
@@ -608,7 +609,7 @@ fn load_tasd() -> Result<TasdMovie, String> {
 fn import_legacy(tasd_option: &mut Option<TasdMovie>) -> Result<(), String> {
     let result = cli_read(some_fstr!("Path to .r08, .r16m, or GBI(.txt) file: "));
     if result.is_err() { return Err(format!("Err: {:?}", result.err())) }
-    let mut path = PathBuf::from(result.unwrap());
+    let path = PathBuf::from(result.unwrap());
     if !path.exists() || path.is_dir() { return Err(fstr!("File either doesn't exist or is a directory.")) }
     if path.extension().is_none() { return Err(fstr!("Unable to identify file, make sure extension is correct."))}
     let extension = path.extension().unwrap().to_string_lossy().to_string();
@@ -711,6 +712,129 @@ fn import_legacy(tasd_option: &mut Option<TasdMovie>) -> Result<(), String> {
             Ok(())
         },
         _ => Err(fstr!("Unable to identify file, make sure extension is correct."))
+    }
+}
+
+fn export_legacy(tasd: &TasdMovie) {
+    let valid_types = [0x01, 0x02, 0x05, 0x06, 0x07];
+    let search = tasd.search_by_key(vec![CONSOLE_TYPE]);
+    let mut packets = Vec::new();
+    for packet in search {
+        let packet = packet.as_any().downcast_ref::<ConsoleType>().unwrap();
+        if valid_types.contains(&packet.kind) {
+            packets.push(packet);
+        }
+    }
+    
+    let console_type = match packets.len() {
+        0 => { println!("Unable to determine what console this data is intended for. Please add a ConsoleType packet."); return; },
+        1 => packets[0].kind,
+        _ => {
+            let mut options = vec![fstr!("Return to main menu")];
+            for packet in &packets {
+                if let Some(kind) = console_type_lut(packet.kind) {
+                    options.push(fstr!(kind));
+                }
+            }
+            let selection = cli_selection(options.iter(), some_fstr!("Multiple console types detected. Select which you're trying to export to."), some_fstr!("Console type[0]: "));
+            if selection == 0 { return; }
+            
+            packets[selection - 1].kind 
+        },
+    };
+    
+    match console_type {
+        0x01 => { // NES (.r08)
+            let path = tasd.source_file.with_extension("export.r08");
+            let search = tasd.search_by_key(vec![INPUT_CHUNKS]);
+            
+            let mut port1 = Vec::new();
+            let mut port2 = Vec::new();
+            for packet in search {
+                let chunk = packet.as_any().downcast_ref::<InputChunks>().unwrap();
+                if chunk.port == 1 { chunk.payload.iter().for_each(|byte| port1.push(*byte ^ 0xFF)) }
+                if chunk.port == 2 { chunk.payload.iter().for_each(|byte| port2.push(*byte ^ 0xFF)) }
+            }
+            
+            // if they are different lengths, make up the difference with default inputs
+            let max_len = max(port1.len(), port2.len());
+            for _ in 0..(max_len - port1.len()) { port1.push(0xFF) }
+            for _ in 0..(max_len - port2.len()) { port2.push(0xFF) }
+            
+            let mut out = Vec::new();
+            for i in 0..max_len {
+                out.push(port1[i]);
+                out.push(port2[i]);
+            }
+            
+            let result = std::fs::write(path.clone(), out);
+            if result.is_err() { println!("Err: {:?}\n", result.err().unwrap()); return; }
+            println!("Legacy file data has been exported to: {}\n", path.canonicalize().unwrap().to_string_lossy());
+        },
+        0x02 => { // SNES (.r16m)
+            let path = tasd.source_file.with_extension("export.r16m");
+            let search = tasd.search_by_key(vec![INPUT_CHUNKS]);
+            
+            let mut port1 = Vec::new();
+            let mut port2 = Vec::new();
+            let mut port3 = Vec::new();
+            let mut port4 = Vec::new();
+            for packet in search {
+                let chunk = packet.as_any().downcast_ref::<InputChunks>().unwrap();
+                if chunk.port == 1 { chunk.payload.iter().for_each(|byte| port1.push(*byte ^ 0xFF)) }
+                if chunk.port == 2 { chunk.payload.iter().for_each(|byte| port2.push(*byte ^ 0xFF)) }
+                if chunk.port == 3 { chunk.payload.iter().for_each(|byte| port3.push(*byte ^ 0xFF)) }
+                if chunk.port == 4 { chunk.payload.iter().for_each(|byte| port4.push(*byte ^ 0xFF)) }
+            }
+            
+            // if they are different lengths, make up the difference with default inputs
+            let max_len = max(port1.len(), port2.len());
+            for _ in 0..(max_len - port1.len()) { port1.push(0xFF) }
+            for _ in 0..(max_len - port2.len()) { port2.push(0xFF) }
+            
+            let mut out = Vec::new();
+            for i in 0..(max_len / 2) {
+                out.push(port1[(i * 2)]);
+                out.push(port1[(i * 2) + 1]);
+                out.push(port2[(i * 2)]);
+                out.push(port2[(i * 2) + 1]);
+            }
+            
+            let result = std::fs::write(path.clone(), out);
+            if result.is_err() { println!("Err: {:?}\n", result.err().unwrap()); return; }
+            println!("Legacy file data has been exported to: {}\n", path.canonicalize().unwrap().to_string_lossy());
+        },
+        0x05 | 0x06 => { // GB/C (GBI .txt)
+            let path = tasd.source_file.with_extension("export.txt");
+            let search = tasd.search_by_key(vec![INPUT_MOMENT]);
+            let mut out = Vec::new();
+            for packet in search {
+                let moment = packet.as_any().downcast_ref::<InputMoment>().unwrap();
+                let line = format!("{:08X} {:04X}\n", moment.index, (moment.payload[0] ^ 0xFF) as u16);
+                
+                line.as_bytes().iter().for_each(|byte| out.push(*byte));
+            }
+            
+            let result = std::fs::write(path.clone(), out);
+            if result.is_err() { println!("Err: {:?}\n", result.err().unwrap()); return; }
+            println!("Legacy file data has been exported to: {}\n", path.canonicalize().unwrap().to_string_lossy());
+        },
+        0x07 => { // GBA (GBI .txt)
+            let path = tasd.source_file.with_extension("export.txt");
+            let search = tasd.search_by_key(vec![INPUT_MOMENT]);
+            let mut out = Vec::new();
+            for packet in search {
+                let moment = packet.as_any().downcast_ref::<InputMoment>().unwrap();
+                let line = format!("{:08X} {:04X}\n", moment.index, to_u16(&moment.payload) ^ 0xFFFF);
+                
+                line.as_bytes().iter().for_each(|byte| out.push(*byte));
+            }
+            
+            let result = std::fs::write(path.clone(), out);
+            if result.is_err() { println!("Err: {:?}\n", result.err().unwrap()); return; }
+            println!("Legacy file data has been exported to: {}\n", path.canonicalize().unwrap().to_string_lossy());
+        },
+        _ => ()
     }
 }
 
