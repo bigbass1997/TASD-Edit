@@ -99,6 +99,7 @@ pub fn key_spec_lut(key: [u8; 2]) -> Option<PacketSpec> {
         OVERREAD => Some(Overread::default().get_packet_spec()),
         GAME_GENIE_CODE => Some(GameGenieCode::default().get_packet_spec()),
         INPUT_CHUNKS => Some(InputChunks::default().get_packet_spec()),
+        INPUT_MOMENT => Some(InputMoment::default().get_packet_spec()),
         TRANSITION => Some(Transition::default().get_packet_spec()),
         LAG_FRAME_CHUNK => Some(LagFrameChunk::default().get_packet_spec()),
         MOVIE_TRANSITION => Some(MovieTransition::default().get_packet_spec()),

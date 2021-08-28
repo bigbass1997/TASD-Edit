@@ -12,8 +12,9 @@ macro_rules! key_const {
     };
 }
 
+pub const LATEST_VERSION: [u8; 2] = [0x00, 0x01];
 pub const MAGIC_NUMBER: [u8; 4] = [0x54, 0x41, 0x53, 0x44];
-pub const NEW_TASD_FILE: [u8; 7] = [0x54, 0x41, 0x53, 0x44, 0x00, 0x01, 0x02];
+pub const NEW_TASD_FILE: [u8; 7] = [0x54, 0x41, 0x53, 0x44, LATEST_VERSION[0], LATEST_VERSION[1], 0x02];
 
 key_const!(CONSOLE_TYPE, 0x00, 0x01);
 key_const!(CONSOLE_REGION, 0x00, 0x02);
@@ -42,9 +43,10 @@ key_const!(GAME_GENIE_CODE, 0x01, 0x04);
 
 
 key_const!(INPUT_CHUNKS, 0xFE, 0x01);
-key_const!(TRANSITION, 0xFE, 0x02);
-key_const!(LAG_FRAME_CHUNK, 0xFE, 0x03);
-key_const!(MOVIE_TRANSITION, 0xFE, 0x04);
+key_const!(INPUT_MOMENT, 0xFE, 0x02);
+key_const!(TRANSITION, 0xFE, 0x03);
+key_const!(LAG_FRAME_CHUNK, 0xFE, 0x04);
+key_const!(MOVIE_TRANSITION, 0xFE, 0x05);
 
 
 #[derive(Clone, Debug, Default)]
@@ -117,14 +119,19 @@ impl Packet for Unsupported {
 ////////////////////////////////////// ConsoleType //////////////////////////////////////
 #[derive(Default, Clone, Debug)]
 pub struct ConsoleType {
-    raw: Vec<u8>,
-    kind: u8,
-    custom: Option<String>,
+    pub raw: Vec<u8>,
+    pub kind: u8,
+    pub custom: Option<String>,
 }
 impl ConsoleType {
     pub fn new(kind: u8, custom: Option<String>) -> Box<Self> {
+        let mut raw_payload = Vec::new();
+        raw_payload.push(kind);
+        if custom.is_some() {
+            custom.clone().unwrap().as_bytes().iter().for_each(|byte| raw_payload.push(*byte));
+        }
         Box::new(Self {
-            raw: serialize_payload(CONSOLE_TYPE.to_vec(), vec![kind]),
+            raw: serialize_payload(CONSOLE_TYPE.to_vec(), raw_payload),
             kind: kind,
             custom: custom,
         })
@@ -695,16 +702,16 @@ pub struct MemoryInit {
 }
 impl MemoryInit {
     pub fn new(kind: u8, required: u8, name: String, payload: Option<Vec<u8>>) -> Box<Self> {
-        let mut serialize_data = Vec::new();
-        serialize_data.push(kind); // kind
-        serialize_data.push(required); // required for verification
-        serialize_payload(Vec::new(), name.as_bytes().to_vec()).iter().for_each(|byte| serialize_data.push(*byte)); // v + k + n
+        let mut raw_payload = Vec::new();
+        raw_payload.push(kind); // kind
+        raw_payload.push(required); // required for verification
+        serialize_payload(Vec::new(), name.as_bytes().to_vec()).iter().for_each(|byte| raw_payload.push(*byte)); // v + k + n
         if payload.is_some() {
-            payload.clone().unwrap().iter().for_each(|byte| serialize_data.push(*byte)); // p (optional payload)
+            payload.clone().unwrap().iter().for_each(|byte| raw_payload.push(*byte)); // p (optional payload)
         }
         
         Box::new(Self {
-            raw: serialize_payload(MEMORY_INIT.to_vec(), serialize_data),
+            raw: serialize_payload(MEMORY_INIT.to_vec(), raw_payload),
             kind: kind,
             required: required,
             name: name,
@@ -1001,6 +1008,55 @@ impl Packet for InputChunks {
     }
     fn formatted_payload(&self) -> String {
         let mut out = format!("Port #{}, Chunks: ", self.port);
+        self.payload.iter().for_each(|byte| out.push_str(format!("{:02X} ", byte).as_str()));
+        
+        out
+    }
+}
+
+
+////////////////////////////////////// InputMoment //////////////////////////////////////
+#[derive(Default, Clone, Debug)]
+pub struct InputMoment {
+    raw: Vec<u8>,
+    port: u8,
+    index: u32,
+    payload: Vec<u8>,
+}
+impl InputMoment {
+    pub fn new(port: u8, index: u32, input: Vec<u8>) -> Box<Self> {
+        let mut raw_payload = input.clone();
+        raw_payload.insert(0, port);
+        
+        Box::new(Self {
+            raw: serialize_payload(INPUT_MOMENT.to_vec(), raw_payload),
+            port: port,
+            index: index,
+            payload: input,
+        })
+    }
+}
+impl Packet for InputMoment {
+    fn parse(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
+        let (raw, payload) = get_raw_packet(data, i);
+        
+        Box::new(Self {
+            raw: raw,
+            port: payload[0],
+            index: to_u32(&payload[1..=4]),
+            payload: payload[5..payload.len()].to_vec(),
+        })
+    }
+    
+    fn get_raw(&self) -> Vec<u8> {
+        self.raw.clone()
+    }
+    
+    fn get_packet_spec(&self) -> PacketSpec {
+        packet_spec!(INPUT_MOMENT, "InputMoment", "Port number (1-indexed) + a variable number of input chunks for that port.\nEach chunk can vary in size depending on the controller type in use on the respective frame.\nRefer to transitions to know if any controller types change mid-playback.\nThese packets, and the input chunks therein, are in sequential order!\nTherefore, any following input packets are appended to the inputs contained in this one.\nInput values are usually in native format (usually active-low), refer to `inputmaps.txt` for details.")
+    }
+    fn formatted_payload(&self) -> String {
+        let mut out = format!("Port #{}, Input: ", self.port);
         self.payload.iter().for_each(|byte| out.push_str(format!("{:02X} ", byte).as_str()));
         
         out

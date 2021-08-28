@@ -3,12 +3,20 @@ use crate::definitions::*;
 use crate::util::{to_u16, to_bytes};
 use std::path::PathBuf;
 
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct TasdMovie {
     pub version: u16,
     pub key_width: u8,
     pub packets: Vec<Box<dyn Packet>>,
     pub source_file: PathBuf,
+}
+impl Default for TasdMovie {
+    fn default() -> Self { Self {
+        version: to_u16(&LATEST_VERSION),
+        key_width: 2,
+        packets: vec![],
+        source_file: Default::default()
+    }}
 }
 impl TasdMovie {
     pub fn new(path: &PathBuf) -> Result<Self, String> {
@@ -45,6 +53,11 @@ impl TasdMovie {
     pub fn save(&self) {
         std::fs::write(self.source_file.clone(), self.dump()).unwrap();
     }
+    
+    /// Searches and returns references to all packets which match the provided key(s)
+    pub fn search_by_key(&self, keys: Vec<[u8; 2]>) -> Vec<&Box<dyn Packet>> {
+        self.packets.iter().filter(|packet| keys.contains(&packet.get_packet_spec().key)).map(|packet| packet).collect()
+    }
 }
 
 pub fn parse_packet(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
@@ -73,6 +86,7 @@ pub fn parse_packet(data: &Vec<u8>, i: &mut usize) -> Box<dyn Packet> {
         OVERREAD => Overread::parse(data, i),
         GAME_GENIE_CODE => GameGenieCode::parse(data, i),
         INPUT_CHUNKS => InputChunks::parse(data, i),
+        INPUT_MOMENT => InputMoment::parse(data, i),
         TRANSITION => Transition::parse(data, i),
         LAG_FRAME_CHUNK => LagFrameChunk::parse(data, i),
         MOVIE_TRANSITION => MovieTransition::parse(data, i),

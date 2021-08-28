@@ -1,21 +1,23 @@
-use std::ffi::OsStr;
-use std::io::{Error, stdout, Write};
-use std::path::{PathBuf, Path};
-use std::time::Instant;
-
-use crossterm::execute;
-use crossterm::terminal::{SetTitle};
-use regex::Regex;
-
-use definitions::*;
-use movie::TasdMovie;
-use crate::lookup::{key_spec_lut, console_type_lut, console_region_lut, memory_init_lut, transition_lut, controller_type_lut};
-use chrono::{NaiveDate, Date, NaiveTime, Utc};
 
 mod util;
 mod lookup;
 mod definitions;
 mod movie;
+
+use std::ffi::OsStr;
+use std::io::{Error, stdout, Write};
+use std::path::{PathBuf, Path};
+
+use crossterm::execute;
+use crossterm::terminal::{SetTitle};
+use regex::Regex;
+use chrono::{NaiveDate, Date, NaiveTime, Utc};
+
+use definitions::*;
+use movie::TasdMovie;
+use lookup::{key_spec_lut, console_type_lut, console_region_lut, memory_init_lut, transition_lut, controller_type_lut};
+use util::to_bytes;
+
 
 macro_rules! fstr {
     ($text:expr) => {
@@ -33,63 +35,89 @@ fn main() {
     //execute!(stdout(), Clear(ClearType::All)).unwrap();
     execute!(stdout(), SetTitle("TASD-Edit")).unwrap();
     
+    let mut tasd = None;
+    
     let cli_state = parse_args();
-    let start = Instant::now();
-    let mut tasd = TasdMovie::new(&cli_state.tasd_path).unwrap();
-    let end = Instant::now();
-    println!("Parse Time: {:.9} seconds\n", (end - start).as_secs_f64());
+    if cli_state.tasd_path.is_some() {
+        tasd = Some(TasdMovie::new(&cli_state.tasd_path.unwrap()).unwrap());
+    }
+    
+    
+    
+    //let start = Instant::now();
+    //let end = Instant::now();
+    //println!("Parse Time: {:.9} seconds\n", (end - start).as_secs_f64());
     
     while !main_menu(&mut tasd) {}
     
     exit(false, 0);
 }
 
-fn main_menu(tasd: &mut TasdMovie) -> bool {
-    let selection = cli_selection(
-        [
-            fstr!("Exit/Quit"),
-            fstr!("Modify a packet (unimplemented)"),
-            fstr!("Add a new packet"),
-            fstr!("Remove a packet"),
-            fstr!("Display all packets"),
-            fstr!("Display all, except input chunks"),
-            fstr!("Save prettified packets to file")
-        ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
-    );
-    
-    match selection {
-        1 => {
-            edit_menu(tasd);
-            false
-        },
-        2 => {
-            while !add_menu(tasd) {}
-            false
-        },
-        3 => {
-            while !remove_menu(tasd) {}
-            false
-        },
-        4 => {
-            display_packets(tasd, false);
-            false
-        },
-        5 => {
-            display_packets(tasd, true);
-            false
-        },
-        6 => {
-            save_pretty(tasd);
-            false
-        },
+fn main_menu(tasd_option: &mut Option<TasdMovie>) -> bool {
+    if tasd_option.is_some() {
+        let tasd = tasd_option.as_mut().unwrap();
+        let selection = cli_selection([
+                fstr!("Exit/Quit"),
+                fstr!("Create/load a TASD file"),
+                fstr!("Import a legacy file"),
+                fstr!("Export to legacy file"),
+                fstr!("Add a new packet"),
+                fstr!("Remove a packet"),
+                fstr!("Display all packets"),
+                fstr!("Display all, except input chunks"),
+                fstr!("Save prettified packets to file")
+            ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
+        );
         
-        _ => true,
+        let mut ret = false;
+        match selection {
+          //0 => exits program
+            1 => { match load_tasd() {
+                Err(x) => println!("Err: {}", x),
+                Ok(x) => *tasd = x,
+            }},
+            2 => { match import_legacy(tasd_option) {
+                Err(x) => println!("Err: {}", x),
+                Ok(_) => ()
+            }},
+            3 => {  },
+            4 => { while !add_menu(tasd) {} },
+            5 => { while !remove_menu(tasd) {} },
+            6 => { display_packets(tasd, false); },
+            7 => { display_packets(tasd, true); },
+            8 => { save_pretty(tasd); },
+            
+            _ => ret = true,
+        };
+        
+        ret
+    } else {
+        let selection = cli_selection([
+                fstr!("Exit/Quit"),
+                fstr!("Create/load a TASD file"),
+                fstr!("Import a legacy file"),
+            ].iter(), Some(fstr!("What would you like to do?\n")), Some(fstr!("Option[0]: "))
+        );
+        
+        let mut ret = false;
+        match selection {
+          //0 => exits program
+            1 => { match load_tasd() {
+                Err(x) => println!("Err: {}", x),
+                Ok(x) => *tasd_option = Some(x),
+            }},
+            2 => {
+                match import_legacy(tasd_option) {
+                    Err(x) => println!("Err: {}", x),
+                    Ok(_) => ()
+                }
+            },
+            
+            _ => ret = true,
+        };
+        
+        ret
     }
-}
-
-#[allow(unused)]
-fn edit_menu(tasd: &mut TasdMovie) {
-    
 }
 
 fn add_menu(tasd: &mut TasdMovie) -> bool {
@@ -329,6 +357,7 @@ fn create_packet(pretext: Option<String>, exclude: Option<Vec<[u8; 2]>>) -> (boo
         },
         
         //TODO: INPUT_CHUNKS: Idea is to list all frames with an index, and let user specify before or after a specific index to insert a new packet.
+        //TODO: INPUT_MOMENT: Much easier to support
         
         TRANSITION => {
             let index = cli_read(some_fstr!("Frame/Index number: "));
@@ -484,7 +513,7 @@ fn save_tasd(tasd: &mut TasdMovie) {
 
 #[derive(Default)]
 struct CliState {
-    tasd_path: PathBuf,
+    tasd_path: Option<PathBuf>,
     
 }
 
@@ -526,27 +555,7 @@ fn parse_args() -> CliState {
         }*/
     }
     
-    if path_args.is_empty() {
-        // No file specified, request the user to input a path. //
-        
-        let result = cli_read(Some("No input tasd file was provided/found.\nProvide the name for a new empty file, or the path to an existing file you wish to load.\nFile name: ".to_string()));
-        if result.is_ok() {
-            let mut name = result.unwrap();
-            if name.is_empty() {
-                println!("Error: Empty input. You must create or load a file to use this software.");
-                exit(true, 1);
-            } else {
-                if !name.ends_with(".tasd") { name.push_str(".tasd") }
-                let mut path = PathBuf::from(name);
-                check_tasd_exists_create(&mut path);
-                
-                state.tasd_path = path;
-            }
-        } else {
-            println!("Error: {:?}", result.err().unwrap());
-            exit(true, 1);
-        }
-    } else if path_args.len() > 1 {
+    if path_args.len() > 1 {
         // More than one valid path was provided. Request the user to select which one they want to load. //
         
         let i = cli_selection(
@@ -557,14 +566,14 @@ fn parse_args() -> CliState {
         let mut path = path_args[i].clone();
         check_tasd_exists_create(&mut path);
         
-        state.tasd_path = path;
-    } else {
+        state.tasd_path = Some(path);
+    } else if path_args.len() == 1 {
         // Only one valid path was provided, using it. //
         
         let mut path = path_args[0].clone();
         check_tasd_exists_create(&mut path);
         
-        state.tasd_path = path;
+        state.tasd_path = Some(path);
     }
     
     //TODO implement additional argument functionality
@@ -572,6 +581,137 @@ fn parse_args() -> CliState {
     
     
     state
+}
+
+fn load_tasd() -> Result<TasdMovie, String> {
+    let result = cli_read(some_fstr!("Provide the name for a new empty file, or the path to an existing file you wish to load.\nFile name: "));
+    if result.is_ok() {
+        let mut name = result.unwrap();
+        if name.is_empty() {
+            return Err(fstr!("Err: Empty input. You must create or load a file to use this software."));
+        } else {
+            if !name.ends_with(".tasd") { name.push_str(".tasd") }
+            let mut path = PathBuf::from(name);
+            check_tasd_exists_create(&mut path);
+            let result = TasdMovie::new(&path);
+            if result.is_err() {
+                return Err(result.err().unwrap_or(fstr!("Unknown error")));
+            } else {
+                return Ok(result.unwrap());
+            }
+        }
+    } else {
+        return Err(format!("Err: {:?}", result.err().unwrap()));
+    }
+}
+
+fn import_legacy(tasd_option: &mut Option<TasdMovie>) -> Result<(), String> {
+    let result = cli_read(some_fstr!("Path to .r08, .r16m, or GBI(.txt) file: "));
+    if result.is_err() { return Err(format!("Err: {:?}", result.err())) }
+    let mut path = PathBuf::from(result.unwrap());
+    if !path.exists() || path.is_dir() { return Err(fstr!("File either doesn't exist or is a directory.")) }
+    if path.extension().is_none() { return Err(fstr!("Unable to identify file, make sure extension is correct."))}
+    let extension = path.extension().unwrap().to_string_lossy().to_string();
+    
+    if tasd_option.is_none() {
+        let mut tasd = TasdMovie::default();
+        tasd.source_file = path.clone();
+        tasd.source_file.set_extension("tasd");
+        tasd_option.insert(tasd);
+    }
+    let tasd = tasd_option.as_mut().unwrap();
+    
+    match extension.as_str() {
+        "r08" => {
+            let result = std::fs::read(path);
+            if result.is_err() { return Err(format!("Err: {:?}", result.err())) }
+            let mut result = result.unwrap();
+            if result.len() % 2 == 1 { result.push(0xFF) } // Shouldn't ever be misaligned, but is safer to double check
+            tasd.packets.push(ConsoleType::new(0x01, None));
+            tasd.packets.push(PortController::new(1, 0x0101));
+            tasd.packets.push(PortController::new(2, 0x0101));
+            
+            let mut port1 = Vec::new();
+            let mut port2 = Vec::new();
+            for i in 0..(result.len() / 2) {
+                port1.push(result[(i * 2)] ^ 0xFF);
+                port2.push(result[(i * 2) + 1] ^ 0xFF);
+            }
+            tasd.packets.push(InputChunks::new(1, port1));
+            tasd.packets.push(InputChunks::new(2, port2));
+            
+            save_tasd(tasd);
+            println!("Legacy file data has been imported and saved.\n");
+            Ok(())
+        },
+        "r16m" => {
+            let result = std::fs::read(path);
+            if result.is_err() { return Err(format!("Err: {:?}", result.err())) }
+            let mut result = result.unwrap();
+            if result.len() % 2 == 1 { result.push(0) } // Shouldn't ever be misaligned, but is safer to double check
+            if result.len() % 4 == 1 { result.push(0); result.push(0); } // Shouldn't ever be misaligned, but is safer to double check
+            tasd.packets.push(ConsoleType::new(0x02, None));
+            tasd.packets.push(PortController::new(1, 0x0201));
+            tasd.packets.push(PortController::new(2, 0x0201));
+            
+            let mut port1 = Vec::new();
+            let mut port2 = Vec::new();
+            for i in 0..(result.len() / 4) {
+                port1.push(result[(i * 4)] ^ 0xFF);
+                port1.push(result[(i * 4) + 1] ^ 0xFF);
+                port2.push(result[(i * 4) + 2] ^ 0xFF);
+                port2.push(result[(i * 4) + 3] ^ 0xFF);
+            }
+            tasd.packets.push(InputChunks::new(1, port1));
+            tasd.packets.push(InputChunks::new(2, port2));
+            
+            save_tasd(tasd);
+            println!("Legacy file data has been imported and saved.\n");
+            Ok(())
+        },
+        "txt" => {
+            let selection = cli_selection([fstr!("GB"), fstr!("GBC"), fstr!("GBA")].iter(), some_fstr!("Which handheld is this for?\n"), some_fstr!("Handheld type[0]: "));
+            let result = std::fs::read_to_string(path);
+            if result.is_err() { return Err(format!("Err: {:?}", result.err())) }
+            let result = result.unwrap();
+            let result = result.lines();
+            match selection {
+                0 => {
+                    tasd.packets.push(ConsoleType::new(0x05, None));
+                    tasd.packets.push(PortController::new(1, 0x0501));
+                },
+                1 => {
+                    tasd.packets.push(ConsoleType::new(0x06, None));
+                    tasd.packets.push(PortController::new(1, 0x0601));
+                },
+                2 => {
+                    tasd.packets.push(ConsoleType::new(0x07, None));
+                    tasd.packets.push(PortController::new(1, 0x0701));
+                },
+                _ => ()
+            }
+            
+            for line in result {
+                let parts = line.split_once(' ');
+                if parts.is_some() {
+                    let parts = parts.unwrap();
+                    let clock = u32::from_str_radix(parts.0, 16).unwrap();
+                    let input = to_bytes(u16::from_str_radix(parts.1, 16).unwrap() as usize, 2);
+                    match selection {
+                        0 => { tasd.packets.push(InputMoment::new(1, clock, vec![input[1] ^ 0xFF])) },
+                        1 => { tasd.packets.push(InputMoment::new(1, clock, vec![input[1] ^ 0xFF])) },
+                        2 => { tasd.packets.push(InputMoment::new(1, clock, vec![input[0] ^ 0xFF, input[1] ^ 0xFF])) },
+                        _ => ()
+                    }
+                }
+            }
+            
+            save_tasd(tasd);
+            println!("Legacy file data has been imported and saved.\n");
+            Ok(())
+        },
+        _ => Err(fstr!("Unable to identify file, make sure extension is correct."))
+    }
 }
 
 fn cli_read(pretext: Option<String>) -> Result<String, Option<Error>> {
