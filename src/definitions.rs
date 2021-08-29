@@ -1418,7 +1418,7 @@ fn serialize_payload(key: Vec<u8>, payload: Vec<u8>) -> Vec<u8> {
     let mut len_bytes = Vec::<u8>::new();
     let mut len = payload.len();
     while len != 0 {
-        len_bytes.push((len & 0xFF) as u8);
+        len_bytes.insert(0, (len & 0xFF) as u8);
         len >>= 8;
     }
     
