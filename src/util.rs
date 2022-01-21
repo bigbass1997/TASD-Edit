@@ -12,7 +12,6 @@ pub fn to_u32(data: &[u8]) -> u32 {
     to_usize(data) as u32
 }
 
-#[allow(unused)]
 pub fn to_u64(data: &[u8]) -> u64 {
     to_usize(data) as u64
 }
@@ -41,4 +40,27 @@ pub fn to_bytes(mut number: usize, length: u8) -> Vec<u8> {
     }
     
     out
+}
+
+pub fn print_slice(slice: &[u8]) {
+    for byte in slice {
+        print!("{:02X} ", byte);
+    }
+    println!("")
+}
+
+pub fn format_slice_hex(slice: &[u8]) -> String {
+    let mut s = String::new();
+    for byte in slice {
+        s.push_str(&format!("{:02X} ", byte));
+    }
+    s.trim().to_owned()
+}
+
+pub fn format_slice_bin(slice: &[u8]) -> String {
+    let mut s = String::new();
+    for byte in slice {
+        s.push_str(&format!("{:08b} ", byte));
+    }
+    s
 }
