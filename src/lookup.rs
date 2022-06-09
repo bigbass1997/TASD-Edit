@@ -34,14 +34,35 @@ pub fn attribution_lut<'a>(kind: u8) -> Option<&'a str> {
     }
 }
 
-pub fn memory_init_lut<'a>(kind: u16) -> Option<&'a str> {
+pub fn memory_init_data_lut<'a>(kind: u8) -> Option<&'a str> {
     match kind {
-        0x0001 => Some("No initialization required"),
-        0x0002 => Some("All 0x00"),
-        0x0003 => Some("All 0xFF"),
-        0x0004 => Some("00 00 00 00 FF FF FF FF (repeating)"),
-        0x0005 => Some("Random"),
-        0xFFFF => Some("Custom"),
+        0x01 => Some("No initialization required"),
+        0x02 => Some("All 0x00"),
+        0x03 => Some("All 0xFF"),
+        0x04 => Some("00 00 00 00 FF FF FF FF (repeating)"),
+        0x05 => Some("Random"),
+        0xFF => Some("Custom"),
+        _ => None
+    }
+}
+
+pub fn memory_init_device_lut<'a>(kind: u16) -> Option<&'a str> {
+    match kind {
+        0x0101 => Some("NES CPU RAM"),
+        0x0102 => Some("NES Cartridge Save Data"),
+        0x0201 => Some("SNES CPU RAM"),
+        0x0202 => Some("SNES Cartridge Save Data"),
+        0x0501 => Some("GB CPU RAM"),
+        0x0502 => Some("GB Cartridge Save Data"),
+        0x0601 => Some("GBC CPU RAM"),
+        0x0602 => Some("GBC Cartridge Save Data"),
+        0x0701 => Some("GBA CPU RAM"),
+        0x0702 => Some("GBA Cartridge Save Data"),
+        0x0801 => Some("Genesis CPU RAM"),
+        0x0802 => Some("Genesis Cartridge Save Data"),
+        0x0901 => Some("A2600 CPU RAM"),
+        0x0902 => Some("A2600 Cartridge Save Data"),
+        0xFFFF => Some("Custom/Other Device"),
         _ => None
     }
 }
@@ -71,31 +92,34 @@ pub fn game_identifier_lut<'a>(kind: u8) -> Option<&'a str> {
 
 pub fn controller_type_lut<'a>(kind: u16) -> Option<&'a str> {
     match kind {
-        0x0101 => Some("NES Standard"),
+        0x0101 => Some("NES Standard Controller"),
         0x0102 => Some("NES Four Score"),
-        0x0103 => Some("NES Zapper"),
-        0x0201 => Some("SNES Standard"),
+        0x0103 => Some("(RESERVED) NES Zapper"),
+        0x0104 => Some("(RESERVED) NES Power Pad"),
+        0x0105 => Some("(RESERVED) Famicom Family BASIC Keyboard"),
+        0x0201 => Some("SNES Standard Controller"),
         0x0202 => Some("SNES Super Multitap"),
         0x0203 => Some("SNES Mouse"),
-        0x0204 => Some("SNES Superscope"),
-        0x0301 => Some("N64 Standard"),
-        0x0302 => Some("N64 Standard with Rumble Pak"),
-        0x0303 => Some("N64 Standard with Controller Pak"),
-        0x0304 => Some("N64 Standard with Transfer Pak"),
+        0x0204 => Some("(RESERVED) SNES Superscope"),
+        0x0301 => Some("N64 Standard Controller"),
+        0x0302 => Some("N64 Standard Controller with Rumble Pak"),
+        0x0303 => Some("N64 Standard Controller with Controller Pak"),
+        0x0304 => Some("N64 Standard Controller with Transfer Pak"),
         0x0305 => Some("N64 Mouse"),
-        0x0306 => Some("N64 Voice Recognition Unit (VRU)"),
-        0x0307 => Some("N64 RandNet Keyboard"),
+        0x0306 => Some("(RESERVED) N64 Voice Recognition Unit (VRU)"),
+        0x0307 => Some("(RESERVED) N64 RandNet Keyboard"),
         0x0308 => Some("N64 Densha de Go"),
-        0x0401 => Some("GC Standard"),
-        0x0402 => Some("GC Keyboard"),
+        0x0401 => Some("GC Standard Controller"),
+        0x0402 => Some("(RESERVED) GC Keyboard"),
         0x0501 => Some("GB Gamepad"),
         0x0601 => Some("GBC Gamepad"),
         0x0701 => Some("GBA Gamepad"),
         0x0801 => Some("Genesis (Mega Drive) 3-Button"),
         0x0802 => Some("Genesis (Mega Drive) 6-Button"),
         0x0901 => Some("A2600 Joystick"),
-        0x0902 => Some("A2600 Paddle"),
-        0x0903 => Some("A2600 Keypad"),
+        0x0902 => Some("(RESERVED) A2600 Paddle"),
+        0x0903 => Some("A2600 Keyboard Controller"),
+        0xFFFF => Some("Other/Unspecified"),
         _ => None
     }
 }

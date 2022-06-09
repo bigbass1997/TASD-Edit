@@ -116,7 +116,7 @@ impl Debug for DumpError {
     }
 }
 use DumpError::*;
-use crate::lookup::{attribution_lut, console_region_lut, console_type_lut, controller_type_lut, game_identifier_lut, input_moment_lut, memory_init_lut, transition_index_lut, transition_kind_lut};
+use crate::lookup::{attribution_lut, console_region_lut, console_type_lut, controller_type_lut, game_identifier_lut, input_moment_lut, memory_init_data_lut, memory_init_device_lut, transition_index_lut, transition_kind_lut};
 
 
 #[derive(Clone, Debug)]
@@ -875,15 +875,17 @@ impl Packet for Verified {
 #[derive(Clone, Debug)]
 pub struct MemoryInit {
     pub key: Key,
-    pub kind: u16,
+    pub data_kind: u8,
+    pub device_kind: u16,
     pub required: bool,
     pub name: String,
     pub data: Option<Vec<u8>>,
 }
 impl MemoryInit {
-    pub fn new(kind: u16, required: bool, name: String, data: Option<Vec<u8>>) -> Self { Self {
+    pub fn new(data_kind: u8, device_kind: u16, required: bool, name: String, data: Option<Vec<u8>>) -> Self { Self {
         key: KEY_MEMORY_INIT,
-        kind,
+        data_kind,
+        device_kind,
         required,
         name,
         data,
@@ -891,22 +893,23 @@ impl MemoryInit {
 }
 impl Display for MemoryInit {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}, Required? {}, Name: {}", "MEMORY_INIT".dark_yellow(), memory_init_lut(self.kind).unwrap_or("Unknown"), self.required, self.name)
+        write!(f, "{} {}, {}, Required? {}, Name: {}", "MEMORY_INIT".dark_yellow(), memory_init_data_lut(self.data_kind).unwrap_or("Unknown"), memory_init_device_lut(self.device_kind).unwrap_or("Unknown"), self.required, self.name)
     }
 }
 impl Packet for MemoryInit {
     fn parse(key: Key, payload: &[u8]) -> Box<dyn Packet> {
-        let plen = payload[2] as usize;
+        let plen = payload[4] as usize;
         Box::new(Self {
             key,
-            kind: to_u16(&payload[0..2]),
-            required: payload[2] != 0,
-            name: String::from_utf8_lossy(&payload[4..(4 + plen)]).to_string(),
-            data: if (4 + plen) < payload.len() { Some(payload[(4 + plen)..].to_vec()) } else { None },
+            data_kind: payload[0],
+            device_kind: to_u16(&payload[1..3]),
+            required: payload[3] != 0,
+            name: String::from_utf8_lossy(&payload[5..(5 + plen)]).to_string(),
+            data: if (5 + plen) < payload.len() { Some(payload[(5 + plen)..].to_vec()) } else { None },
         })
     }
     fn raw(&self) -> Vec<u8> {
-        payload_to_raw(self.key, &[&self.kind.to_be_bytes(), &[self.required as u8, self.name.len() as u8], &self.name.as_bytes()[..min(256, self.name.len())], self.data.as_ref().unwrap_or(&vec![]).as_slice()].concat())
+        payload_to_raw(self.key, &[&[self.data_kind], &self.device_kind.to_be_bytes()[..], &[self.required as u8, self.name.len() as u8], &self.name.as_bytes()[..min(256, self.name.len())], self.data.as_ref().unwrap_or(&vec![]).as_slice()].concat())
     }
     fn key(&self) -> Key { self.key }
     fn as_any(&self) -> &dyn Any { self }

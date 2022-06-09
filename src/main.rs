@@ -318,23 +318,30 @@ fn create_packet(pretext: Option<&str>, exclude: Option<Vec<[u8; 2]>>) -> (bool,
             let mut options = Vec::new();
             let mut kinds = Vec::new();
             options.push("Return to add menu");
-            for i in 1..=65535 {
-                let s = memory_init_lut(i);
+            for i in 1..=255 {
+                let s = memory_init_data_lut(i);
                 if s.is_some() { options.push(s.unwrap()); kinds.push(i); }
             }
             let selection = cli_selection(&options, None, Some("Initialization type[0]: "));
             if selection == 0 { return (false, None); }
-            let kind = kinds[selection - 1];
+            let data_kind = kinds[selection - 1];
             
-            let required = cli_read(Some("Required for verification (true or false): "));
-            if required.is_err() { println!("Err: {:?}\n", required.err().unwrap()); return (false, None); }
-            let required = required.unwrap().parse::<bool>();
-            if required.is_err() { println!("Err: {:?}\n", required.err().unwrap()); return (false, None); }
+            let mut options = Vec::new();
+            let mut kinds = Vec::new();
+            options.push("Return to add menu");
+            for i in 1..=65535 {
+                let s = memory_init_device_lut(i);
+                if s.is_some() { options.push(s.unwrap()); kinds.push(i); }
+            }
+            let selection = cli_selection(&options, None, Some("Initialization type[0]: "));
+            if selection == 0 { return (false, None); }
+            let device_kind = kinds[selection - 1];
             
             let name = cli_read(Some("Name of memory space: "));
             if name.is_err() { println!("Err: {:?}\n", name.err().unwrap()); return (false, None); }
+            
             let mut payload = None;
-            if kind == 0xFFFF {
+            if data_kind == 0xFF {
                 let path = cli_read(Some("Path to file containing memory data: "));
                 if path.is_err() { println!("Err: {:?}\n", path.err().unwrap()); return (false, None); }
                 let path = PathBuf::from(path.unwrap());
@@ -343,7 +350,13 @@ fn create_packet(pretext: Option<&str>, exclude: Option<Vec<[u8; 2]>>) -> (bool,
                 if data_result.is_err() { println!("Err: {:?}\n", data_result.err().unwrap()); return (false, None); }
                 payload = Some(data_result.unwrap());
             }
-            Box::new(MemoryInit::new(kind, required.unwrap(), name.unwrap(), payload))
+            
+            let required = cli_read(Some("Required for verification (true or false): "));
+            if required.is_err() { println!("Err: {:?}\n", required.err().unwrap()); return (false, None); }
+            let required = required.unwrap().parse::<bool>();
+            if required.is_err() { println!("Err: {:?}\n", required.err().unwrap()); return (false, None); }
+            
+            Box::new(MemoryInit::new(data_kind, device_kind, required.unwrap(), name.unwrap(), payload))
         },
         KEY_GAME_IDENTIFIER => {
             let mut options = Vec::new();
