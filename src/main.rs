@@ -3,15 +3,12 @@ use std::ffi::OsStr;
 use std::io::{Error, stdout, Write};
 use std::path::PathBuf;
 use chrono::{Date, NaiveDate, NaiveTime, Utc};
-
+use clap::{App, AppSettings, Arg};
 use crossterm::execute;
 use crossterm::terminal::{SetTitle};
 use crossterm::style::Stylize;
-
-use tasd_edit::lookup::*;
-use tasd_edit::spec::*;
-use clap::{App, AppSettings, Arg};
-use tasd_edit::util::{to_bytes, to_u16};
+use tasd::lookup::*;
+use tasd::spec::*;
 
 
 fn main() {
@@ -370,28 +367,13 @@ fn create_packet(pretext: Option<&str>, exclude: Option<Vec<[u8; 2]>>) -> (bool,
             if selection == 0 { return (false, None); }
             let kind = kinds[selection - 1];
             
-            let hex = cli_read(Some("Is this a hexadecimal string? (true or false): "));
-            if hex.is_err() { println!("Err: {:?}\n", hex.err().unwrap()); return (false, None); }
-            let hex = hex.unwrap().parse::<bool>();
-            if hex.is_err() { println!("Err: {:?}\n", hex.err().unwrap()); return (false, None); }
-            let hex = hex.unwrap();
-            
-            let mut base64 = false;
-            if !hex {
-                let tmp = cli_read(Some("Is this a base64-encoded string? (true or false): "));
-                if tmp.is_err() { println!("Err: {:?}\n", tmp.err().unwrap()); return (false, None); }
-                let tmp = tmp.unwrap().parse::<bool>();
-                if tmp.is_err() { println!("Err: {:?}\n", tmp.err().unwrap()); return (false, None); }
-                base64 = tmp.unwrap();
-            }
-            
-            let identifier = cli_read(Some("Identifier (represented in hexadecimal): "));
+            let identifier = cli_read(Some("Identifier (represented in base16 hexadecimal): "));
             if identifier.is_err() { println!("Err: {:?}\n", identifier.err().unwrap()); return (false, None); }
             let mut identifier = identifier.unwrap();
             identifier = identifier.replace(" ", "");
             let identifier = (0..identifier.len()).step_by(2).map(|i| u8::from_str_radix(&identifier[i..i + 2], 16).unwrap()).collect();
             
-            Box::new(GameIdentifier::new(kind, hex, base64, identifier))
+            Box::new(GameIdentifier::new(kind, 0x02, identifier))
         },
         KEY_MOVIE_LICENSE => {
             let text = cli_read(Some("Movie license: "));
@@ -498,7 +480,7 @@ fn create_packet(pretext: Option<&str>, exclude: Option<Vec<[u8; 2]>>) -> (bool,
             
             let index = cli_read(Some("Index value: "));
             if index.is_err() { println!("Err: {:?}\n", index.err().unwrap()); return (false, None); }
-            let parse_attempt = index.unwrap().parse::<u32>();
+            let parse_attempt = index.unwrap().parse::<u64>();
             if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
             
             let mut options = Vec::new();
@@ -610,7 +592,7 @@ fn remove_menu(tasd: &mut TasdMovie) -> bool {
     true
 }
 
-fn import_tasvideos(tasd: &mut TasdMovie) {
+fn import_tasvideos(_tasd: &mut TasdMovie) {
     unimplemented!()
 }
 
@@ -763,8 +745,8 @@ fn import_legacy(tasd_option: &mut Option<TasdMovie>, path: Option<&PathBuf>) ->
                 let parts = line.split_once(' ');
                 if parts.is_some() {
                     let parts = parts.unwrap();
-                    let clock = u32::from_str_radix(parts.0, 16).unwrap();
-                    let input = to_bytes(u16::from_str_radix(parts.1, 16).unwrap() as usize, 2);
+                    let clock = u64::from_str_radix(parts.0, 16).unwrap();
+                    let input = tasd::util::to_bytes(u16::from_str_radix(parts.1, 16).unwrap() as usize, 2);
                     match selection {
                         0 => { tasd.packets.push(Box::new(InputMoment::new(1, 0x02, clock, vec![input[1] ^ 0xFF]))) },
                         1 => { tasd.packets.push(Box::new(InputMoment::new(1, 0x02, clock, vec![input[1] ^ 0xFF]))) },
@@ -892,7 +874,7 @@ fn export_legacy(tasd: &TasdMovie) {
             let mut out = Vec::new();
             for packet in search {
                 let moment = packet.as_any().downcast_ref::<InputMoment>().unwrap();
-                let line = format!("{:08X} {:04X}\r\n", moment.index, to_u16(&moment.inputs) ^ 0xFFFF);
+                let line = format!("{:08X} {:04X}\r\n", moment.index, u16::from_be_bytes(moment.inputs.as_slice().try_into().unwrap()) ^ 0xFFFF);
                 
                 line.as_bytes().iter().for_each(|byte| out.push(*byte));
             }
