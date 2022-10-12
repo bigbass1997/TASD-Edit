@@ -73,7 +73,7 @@ fn main_menu(tasd_option: &mut Option<TasdMovie>) -> bool {
                 "Import data from TASVideos",
                 "Display all packets",
                 "Display all, except inputs",
-                "Save prettified packets to file",
+                //"Save prettified packets to file",
                 "Create/load a different TASD file",
                 "Import and append a legacy file",
                 "Export to legacy file",
@@ -88,16 +88,16 @@ fn main_menu(tasd_option: &mut Option<TasdMovie>) -> bool {
             3 => { import_tasvideos(tasd); }
             4 => { display_packets(tasd, false); },
             5 => { display_packets(tasd, true); },
-            6 => { save_pretty(tasd); },
-            7 => { match load_tasd() {
+            //6 => { save_pretty(tasd); }, //TODO: Sanitize ANSI color symbols 
+            6 => { match load_tasd() {
                 Err(x) => println!("Err: {:?}\n", x),
                 Ok(x) => *tasd = x,
             }},
-            8 => { match import_legacy(tasd_option, None) {
+            7 => { match import_legacy(tasd_option, None) {
                 Err(x) => println!("Err: {}\n", x),
                 Ok(_) => ()
             }},
-            9 => { export_legacy(tasd) },
+            8 => { export_legacy(tasd) },
             
             _ => ret = true,
         };
@@ -456,6 +456,12 @@ fn create_packet(pretext: Option<&str>, exclude: Option<Vec<[u8; 2]>>) -> (bool,
             if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             Box::new(SnesGameGenieCode::new(text.unwrap()))
         },
+        KEY_SNES_LATCH_TRAIN => {
+            let text = cli_read(Some("Latch trains (space-separated whole numbers): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
+            let trains: Vec<u64> = text.unwrap().split_whitespace().map(|chunk| chunk.parse::<u64>().unwrap_or_default()).collect();
+            Box::new(SnesLatchTrain::new(trains))
+        },
         
         KEY_GENESIS_GAME_GENIE_CODE => {
             let text = cli_read(Some("Game genie code: "));
@@ -546,6 +552,13 @@ fn create_packet(pretext: Option<&str>, exclude: Option<Vec<[u8; 2]>>) -> (bool,
             if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
             Box::new(Comment::new(text.unwrap()))
         },
+        KEY_EXPERIMENTAL => {
+            let text = cli_read(Some("Is this file experimental? (true or false): "));
+            if text.is_err() { println!("Err: {:?}\n", text.err().unwrap()); return (false, None); }
+            let parse_attempt = text.unwrap().parse::<bool>();
+            if parse_attempt.is_err() { println!("Err: {:?}\n", parse_attempt.err().unwrap()); return (false, None); }
+            Box::new(Experimental::new(parse_attempt.unwrap()))
+        },
         KEY_UNSPECIFIED => {
             let selection = cli_selection(&["Return to add menu", "Text string", "Embed a file"], None, Some("Specify type of data[0]: "));
             if selection == 0 { return (false, None); }
@@ -605,7 +618,7 @@ fn display_packets(tasd: &TasdMovie, exclude_inputs: bool) {
     println!("");
 }
 
-fn save_pretty(tasd: &TasdMovie) {
+/*fn save_pretty(tasd: &TasdMovie) {
     let pretty = prettify_packets(tasd);
     let mut path = tasd.source_path.clone();
     path.set_extension("tasd.pretty.txt");
@@ -620,13 +633,13 @@ fn save_pretty(tasd: &TasdMovie) {
     } else {
         println!("File saved to: {}\n", path.canonicalize().unwrap().to_string_lossy())
     }
-}
+}*/
 
 fn prettify_packets(tasd: &TasdMovie) -> Vec<String> {
     let mut out = Vec::new();
     
     out.push(format!("Version: {:#06X}, Key Width: {}", tasd.version, tasd.keylen));
-    let padding = ((tasd.packets.len() as f32).log10() as usize) + 1;
+    let padding = (tasd.packets.len() - 1).to_string().len();
     for (i, packet) in tasd.packets.iter().enumerate() {
         out.push(format!("[{}]: {}", format!("{:padding$}", i, padding=padding).cyan(), packet));
     }
@@ -907,7 +920,7 @@ fn cli_selection<'a>(list: &[&str], pretext: Option<&str>, posttext: Option<&str
     if pretext.is_some() {
         print!("{}", pretext.unwrap());
     }
-    let padding = ((list.len() as f32).log10() as usize) + 1;
+    let padding = (list.len() - 1).to_string().len();
     for (i, element) in list.iter().enumerate() {
         println!("[{}]: {}", format!("{:padding$}", i, padding=padding).cyan(), element);
     }
