@@ -36,7 +36,10 @@ fn main() {
         if path.is_file() {
             let data = std::fs::read(&path).unwrap();
             let ext = path.extension().unwrap_or(OsStr::new("")).to_string_lossy();
-            if data[0..4] == MAGIC_NUMBER || ext == "tasd" {
+            if data[0..4] == MAGIC_NUMBER {
+                if ext != "tasd" {
+                    println!("Warning: File extension should be .tasd for all TASD files.");
+                }
                 tasd = Some(TasdMovie::new(&path).unwrap());
             } else { match ext.as_ref() {
                 "r08" | "r16m" | "txt" => match import_legacy(&mut tasd, Some(&path)) {
@@ -612,7 +615,7 @@ fn import_tasvideos(_tasd: &mut TasdMovie) {
 fn display_packets(tasd: &TasdMovie, exclude_inputs: bool) {
     let pretty = prettify_packets(tasd);
     for packet in pretty {
-        if exclude_inputs && (packet.contains("INPUT_CHUNK") || packet.contains("INPUT_MOMENT")) { continue; }
+        if exclude_inputs && (packet.contains("INPUT_CHUNK") || packet.contains("INPUT_MOMENT")) && !packet.contains("TRANSITION") { continue; }
         println!("{}", packet);
     }
     println!("");
@@ -911,6 +914,7 @@ fn cli_read(pretext: Option<&str>) -> Result<String, Option<Error>> {
     if result.is_err() {
         return Err(result.err());
     }
+    
     println!("");
     
     Ok(cli_input.trim().to_string())
